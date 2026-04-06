@@ -1,0 +1,36 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: infra/docker/backend.Dockerfile
+    environment:
+      PYTHONPATH: /workspace/shared/python
+      CYBERBOX_AUTO_SEED: "true"
+    volumes:
+      - ./logs/observability:/workspace/logs/observability
+      - ./data/evaluation_ground_truth:/workspace/data/evaluation_ground_truth
+    ports:
+      - "8000:8000"
+    depends_on:
+      - vulnerable_app
+
+  frontend:
+    build:
+      context: .
+      dockerfile: infra/docker/frontend.Dockerfile
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+  vulnerable_app:
+    build:
+      context: .
+      dockerfile: infra/docker/vulnerable_app.Dockerfile
+    ports:
+      - "8081:8081"
+
