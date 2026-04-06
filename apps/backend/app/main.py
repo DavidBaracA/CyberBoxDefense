@@ -1,15 +1,28 @@
-"""FastAPI backend for telemetry ingestion, blue detections, and offline evaluation."""
+"""FastAPI backend core for telemetry ingestion, detections, and metrics.
+
+TODO:
+- Add a persistence-backed repository once experiment history must survive restarts.
+- Add a proper Blue-agent submission endpoint when the detection pipeline is wired.
+- Add LangGraph-compatible service boundaries after the simple direct flow is validated.
+"""
 
 from __future__ import annotations
-
-import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from cyberbox_contracts import AttackExecutionRecord, DetectionRecord, ObservableEvent
-
-from .store import RuntimeStore
+from .api.apps import create_apps_router
+from .models import (
+    AttackGroundTruth,
+    DetectionEvent,
+    MetricSnapshot,
+    TelemetryEvent,
+    TelemetryKind,
+    TelemetrySource,
+)
+from .repository import InMemoryRepository
+from .repositories.app_repository import VulnerableAppRepository
+from .services.deployment_service import DeploymentService
 
 app = FastAPI(
     title="CyberBoxDefense Backend",
@@ -25,56 +38,56 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-store = RuntimeStore()
+repository = InMemoryRepository()
+vulnerable_app_repository = VulnerableAppRepository()
+deployment_service = DeploymentService()
 
 
 def seed_demo_state() -> None:
-    """Seed a small demo scenario so the dashboard is useful on first launch."""
-    if store.observable_events or store.attack_ground_truth or store.detections:
+    """Seed demo data so the backend has a useful first-run state."""
+    if repository.telemetry_events or repository.detection_events or repository.attack_ground_truth:
         return
 
-    baseline_event = ObservableEvent(
-        source="vulnerable_app",
-        event_type="access_log",
-        severity="info",
+    baseline_event = TelemetryEvent(
+        source=TelemetrySource.VULNERABLE_APP,
+        kind=TelemetryKind.ACCESS_LOG,
         container_name="vulnerable_app",
+        service_name="vulnerable_app",
         path="/",
         http_status=200,
         message="Baseline request served successfully.",
     )
-    suspicious_event = ObservableEvent(
-        source="vulnerable_app",
-        event_type="http_error",
+    suspicious_event = TelemetryEvent(
+        source=TelemetrySource.CONTAINER_MONITOR,
+        kind=TelemetryKind.HTTP_ERROR,
         severity="warning",
         container_name="vulnerable_app",
-        path="/search?q=' OR '1'='1",
+        service_name="vulnerable_app",
+        path="/search",
         http_status=500,
-        message="Spike in HTTP 500 responses on search endpoint.",
+        message="Container monitor observed a spike in HTTP 500 responses on /search.",
     )
-    attack = AttackExecutionRecord(
+    attack = AttackGroundTruth(
         attack_type="sql_injection",
         target="vulnerable_app/search",
         notes="Seeded offline ground truth for demo mode.",
     )
-    detection = DetectionRecord(
+    detection = DetectionEvent(
         detector="blue_agent_heuristic",
-        predicted_attack_type="sql_injection",
+        classification="sql_injection",
         confidence=0.74,
         summary="Detected suspicious error burst consistent with SQL injection probing.",
         evidence_event_ids=[suspicious_event.event_id],
     )
 
-    store.ingest_event(baseline_event)
-    store.ingest_event(suspicious_event)
-    store.record_attack(attack)
-    store.record_detection(detection)
+    repository.add_telemetry_event(baseline_event)
+    repository.add_telemetry_event(suspicious_event)
+    repository.add_attack_ground_truth(attack)
+    repository.add_detection_event(detection)
 
 
-@app.on_event("startup")
-def on_startup() -> None:
-    """Initialize demo data for the first-run experience."""
-    if os.getenv("CYBERBOX_AUTO_SEED", "true").lower() == "true":
-        seed_demo_state()
+seed_demo_state()
+app.include_router(create_apps_router(vulnerable_app_repository, deployment_service))
 
 
 @app.get("/api/health")
@@ -82,58 +95,25 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/api/telemetry/events", response_model=ObservableEvent)
-def ingest_telemetry_event(event: ObservableEvent) -> ObservableEvent:
-    """Ingest indirect observability data visible to Blue."""
-    return store.ingest_event(event)
+@app.post("/api/telemetry/events", response_model=TelemetryEvent)
+def ingest_telemetry_event(event: TelemetryEvent) -> TelemetryEvent:
+    """Ingest indirect telemetry from the vulnerable app or a container monitor."""
+    return repository.add_telemetry_event(event)
 
 
-@app.get("/api/blue/telemetry")
-def blue_telemetry():
-    """Blue-facing endpoint that intentionally excludes attack ground truth."""
-    return store.blue_telemetry_feed()
+@app.get("/api/telemetry", response_model=list[TelemetryEvent])
+def list_telemetry() -> list[TelemetryEvent]:
+    """Return Blue-safe telemetry events for visualization."""
+    return repository.list_telemetry_events()
 
 
-@app.post("/api/blue/detections", response_model=DetectionRecord)
-def submit_blue_detection(detection: DetectionRecord) -> DetectionRecord:
-    """Receive Blue detections derived from indirect telemetry only."""
-    return store.record_detection(detection)
+@app.get("/api/detections", response_model=list[DetectionEvent])
+def list_detections() -> list[DetectionEvent]:
+    """Return currently stored detections for the dashboard/operator view."""
+    return repository.list_detection_events()
 
 
-@app.get("/api/blue/detections")
-def list_blue_detections() -> list[DetectionRecord]:
-    return store.detections
-
-
-@app.post("/api/evaluation/attacks", response_model=AttackExecutionRecord)
-def submit_attack_ground_truth(attack: AttackExecutionRecord) -> AttackExecutionRecord:
-    """Store ground-truth attack execution results for offline scoring."""
-    return store.record_attack(attack)
-
-
-@app.get("/api/evaluation/attacks")
-def list_attack_ground_truth() -> list[AttackExecutionRecord]:
-    """Operator/evaluator endpoint. Blue agents should not use this."""
-    return store.attack_ground_truth
-
-
-@app.get("/api/metrics")
-def metrics():
-    return store.metric_snapshot()
-
-
-@app.get("/api/dashboard")
-def dashboard() -> dict[str, object]:
-    """Operator dashboard payload. This may include evaluation data for research demos."""
-    return {
-        "observability": store.observable_events,
-        "detections": store.detections,
-        "ground_truth": store.attack_ground_truth,
-        "metrics": store.metric_snapshot(),
-    }
-
-
-@app.post("/api/demo/seed")
-def reseed_demo() -> dict[str, str]:
-    seed_demo_state()
-    return {"status": "seeded"}
+@app.get("/api/metrics", response_model=MetricSnapshot)
+def get_metrics() -> MetricSnapshot:
+    """Return simple in-memory evaluation metrics for the current run."""
+    return repository.compute_metrics()
