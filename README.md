@@ -88,6 +88,22 @@ npm install
 npm run dev
 ```
 
+Playwright smoke tests:
+
+```bash
+cd apps/frontend
+npm install
+npx playwright install chromium
+npm run test:e2e:list-targets
+npm run test:e2e
+```
+
+If multiple vulnerable apps are running, pick one explicitly:
+
+```bash
+CYBERBOX_TARGET_APP_ID=<running-app-id> npm run test:e2e
+```
+
 Vulnerable app:
 
 ```bash
@@ -109,6 +125,59 @@ Blue agent placeholder:
 ```bash
 PYTHONPATH=shared/python python -m agents.blue_agent.main
 ```
+
+## Browser Smoke Testing
+
+Playwright-based smoke tests live under `apps/frontend/tests/e2e`. They are scoped to
+platform-managed local targets only:
+
+- the test helper resolves target URLs from `GET /apps`
+- only running apps from the backend-managed registry are allowed
+- non-local hosts such as public URLs are rejected
+- if more than one app is running, set `CYBERBOX_TARGET_APP_ID`
+
+### Install Playwright
+
+```bash
+cd apps/frontend
+npm install
+npx playwright install chromium
+```
+
+### List running managed targets
+
+```bash
+cd apps/frontend
+npm run test:e2e:list-targets
+```
+
+### Run the smoke test suite
+
+```bash
+cd apps/frontend
+npm run test:e2e
+```
+
+### Run headed for visual debugging
+
+```bash
+cd apps/frontend
+npm run test:e2e:headed
+```
+
+### Screenshot output
+
+The homepage smoke test writes a screenshot to:
+
+- `apps/frontend/test-results/screenshots/<template>-<app_id>-homepage.png`
+
+That screenshot is captured after the managed target homepage loads successfully.
+
+### Notes
+
+- If no managed target is running, the test fails with a clear message.
+- If multiple managed targets are running, the test requires `CYBERBOX_TARGET_APP_ID`.
+- TODO: a future iteration can expose a lightweight backend-triggered smoke-test endpoint or Playwright MCP-backed browser operator adapter.
 
 ## Demo Flow
 

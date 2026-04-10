@@ -7,7 +7,21 @@ const endpointGroups = {
   metrics: ["/metrics", "/api/metrics"],
   vulnerableApps: ["/apps"],
   vulnerableAppTemplates: ["/apps/templates"],
+  blueAgentStatus: ["/blue-agent/status"],
+  blueAgentLogs: ["/blue-agent/logs"],
+  redAgentStatus: ["/red-agent/status"],
+  redAgentScenarios: ["/red-agent/scenarios"],
+  redAgentLogs: ["/red-agent/logs"],
 };
+
+function buildWebSocketUrl(path) {
+  const url = new URL(API_BASE_URL);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.pathname = path;
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
 
 async function fetchJson(path, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, options);
@@ -138,15 +152,75 @@ export async function removeVulnerableApp(appId) {
   });
 }
 
+export async function getBlueAgentStatus() {
+  const { payload } = await tryEndpoints(endpointGroups.blueAgentStatus, {});
+  return asObject(payload);
+}
+
+export async function getBlueAgentLogs() {
+  const { payload } = await tryEndpoints(endpointGroups.blueAgentLogs, {});
+  return asArray(payload, ["logs", "items"]);
+}
+
+export async function startBlueAgent() {
+  return fetchJson("/blue-agent/start", {
+    method: "POST",
+  });
+}
+
+export async function stopBlueAgent() {
+  return fetchJson("/blue-agent/stop", {
+    method: "POST",
+  });
+}
+
+export function getBlueAgentWebSocketUrl() {
+  return buildWebSocketUrl("/ws/blue-agent");
+}
+
+export async function getRedAgentStatus() {
+  const { payload } = await tryEndpoints(endpointGroups.redAgentStatus, {});
+  return asObject(payload);
+}
+
+export async function getRedAgentScenarios() {
+  const { payload } = await tryEndpoints(endpointGroups.redAgentScenarios, []);
+  return asArray(payload, ["scenarios", "items"]);
+}
+
+export async function startRedAgent(request) {
+  return fetchJson("/red-agent/start", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(request),
+  });
+}
+
+export async function stopRedAgent() {
+  return fetchJson("/red-agent/stop", {
+    method: "POST",
+  });
+}
+
+export function getRedAgentWebSocketUrl() {
+  return buildWebSocketUrl("/ws/red-agent");
+}
+
 export async function getDashboardSnapshot() {
-  const [health, telemetry, detections, metrics, vulnerableApps, vulnerableAppTemplates] = await Promise.allSettled([
-    getBackendHealth(),
-    getTelemetry(),
-    getDetections(),
-    getMetrics(),
-    getVulnerableApps(),
-    getVulnerableAppTemplates(),
-  ]);
+  const [health, telemetry, detections, metrics, vulnerableApps, vulnerableAppTemplates, blueAgentStatus, redAgentStatus, redAgentScenarios] =
+    await Promise.allSettled([
+      getBackendHealth(),
+      getTelemetry(),
+      getDetections(),
+      getMetrics(),
+      getVulnerableApps(),
+      getVulnerableAppTemplates(),
+      getBlueAgentStatus(),
+      getRedAgentStatus(),
+      getRedAgentScenarios(),
+    ]);
 
   return {
     connection:
@@ -159,6 +233,9 @@ export async function getDashboardSnapshot() {
     vulnerableApps: vulnerableApps.status === "fulfilled" ? vulnerableApps.value : [],
     vulnerableAppTemplates:
       vulnerableAppTemplates.status === "fulfilled" ? vulnerableAppTemplates.value : [],
+    blueAgentStatus: blueAgentStatus.status === "fulfilled" ? blueAgentStatus.value : {},
+    redAgentStatus: redAgentStatus.status === "fulfilled" ? redAgentStatus.value : {},
+    redAgentScenarios: redAgentScenarios.status === "fulfilled" ? redAgentScenarios.value : [],
     errors: [
       health.status === "rejected" ? health.reason?.message : null,
       telemetry.status === "rejected" ? telemetry.reason?.message : null,
@@ -166,6 +243,9 @@ export async function getDashboardSnapshot() {
       metrics.status === "rejected" ? metrics.reason?.message : null,
       vulnerableApps.status === "rejected" ? vulnerableApps.reason?.message : null,
       vulnerableAppTemplates.status === "rejected" ? vulnerableAppTemplates.reason?.message : null,
+      blueAgentStatus.status === "rejected" ? blueAgentStatus.reason?.message : null,
+      redAgentStatus.status === "rejected" ? redAgentStatus.reason?.message : null,
+      redAgentScenarios.status === "rejected" ? redAgentScenarios.reason?.message : null,
     ].filter(Boolean),
   };
 }

@@ -1,9 +1,9 @@
 """FastAPI backend core for telemetry ingestion, detections, and metrics.
 
 TODO:
-- Add a persistence-backed repository once experiment history must survive restarts.
-- Add a proper Blue-agent submission endpoint when the detection pipeline is wired.
-- Add LangGraph-compatible service boundaries after the simple direct flow is validated.
+- Add a persistence-backed repository once experiment history must surv- Add scenario/run isolation for multi-experiment evaluation.
+- Move the Blue-agent runtime onto durable workers if the MVP outgrows a single
+  backend process.
 """
 
 from __future__ import annotations
@@ -12,6 +12,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api.apps import create_apps_router
+from .api.blue_agent import create_blue_agent_router
+from .api.red_agent import create_red_agent_router
 from .models import (
     AttackGroundTruth,
     DetectionEvent,
@@ -22,7 +24,10 @@ from .models import (
 )
 from .repository import InMemoryRepository
 from .repositories.app_repository import VulnerableAppRepository
+from .services.blue_agent.telemetry_adapter import BlueTelemetryAdapter
+from .services.blue_agent_service import BlueAgentService
 from .services.deployment_service import DeploymentService
+from .services.red_agent.manager import RedAgentManager
 
 app = FastAPI(
     title="CyberBoxDefense Backend",
@@ -41,6 +46,28 @@ app.add_middleware(
 repository = InMemoryRepository()
 vulnerable_app_repository = VulnerableAppRepository()
 deployment_service = DeploymentService()
+
+
+def get_running_vulnerable_apps():
+    apps = []
+    for app in vulnerable_app_repository.list_all():
+        refreshed = deployment_service.inspect_status(app)
+        vulnerable_app_repository.update(refreshed)
+        if refreshed.status == "running":
+            apps.append(refreshed)
+    return apps
+
+
+blue_agent_service = BlueAgentService(
+    running_targets_provider=get_running_vulnerable_apps,
+    telemetry_adapter=BlueTelemetryAdapter(repository),
+    detection_callback=repository.add_detection_event,
+)
+red_agent_service = RedAgentManager(
+    running_targets_provider=get_running_vulnerable_apps,
+    telemetry_callback=repository.add_telemetry_event,
+    ground_truth_callback=repository.add_attack_ground_truth,
+)
 
 
 def seed_demo_state() -> None:
@@ -88,6 +115,8 @@ def seed_demo_state() -> None:
 
 seed_demo_state()
 app.include_router(create_apps_router(vulnerable_app_repository, deployment_service))
+app.include_router(create_blue_agent_router(blue_agent_service))
+app.include_router(create_red_agent_router(red_agent_service))
 
 
 @app.get("/api/health")
