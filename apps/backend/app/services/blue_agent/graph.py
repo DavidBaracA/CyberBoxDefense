@@ -85,16 +85,29 @@ def build_blue_agent_graph(
                 "message": f"Ingested {event_count} telemetry event(s) from the Blue-safe snapshot.",
             }
         ]
+        if snapshot.observables:
+            sample_descriptions = []
+            for observable in snapshot.observables[-3:]:
+                observable_type = observable.get("observable_type") or "unknown-observable"
+                path = observable.get("path") or "unknown-path"
+                sample_descriptions.append(f"{observable_type} on {path}")
+            lines.append(
+                {
+                    "level": "info",
+                    "message": "Recent observable telemetry: " + "; ".join(sample_descriptions) + ".",
+                }
+            )
         return {
             "recent_telemetry": snapshot.events,
+            "recent_observables": snapshot.observables,
             "telemetry_cursor": snapshot.next_cursor,
             "new_evidence_event_ids": snapshot.evidence_event_ids,
             "cycle_terminal_lines": lines,
         }
 
     def summarize_anomalies(state: BlueAgentGraphState) -> BlueAgentGraphState:
-        events = state.get("recent_telemetry", [])
-        if not events:
+        observables = state.get("recent_observables", [])
+        if not observables:
             return {
                 "anomaly_summary": "No new telemetry observed during this cycle.",
                 "suspicion_score": 0.05,
@@ -106,13 +119,23 @@ def build_blue_agent_graph(
                 ],
             }
 
-        http_errors = sum(1 for event in events if (event.get("http_status") or 0) >= 500)
-        elevated = sum(1 for event in events if event.get("severity") in {"warning", "high"})
-        unusual_paths = sum(1 for event in events if event.get("path") in {"/search", "/login", "/api"})
-        score = min(1.0, (http_errors * 0.18) + (elevated * 0.14) + (unusual_paths * 0.12))
+        http_errors = sum(1 for observable in observables if (observable.get("http_status") or 0) >= 500)
+        elevated = sum(1 for observable in observables if observable.get("severity") in {"warning", "high"})
+        login_churn = sum(
+            1
+            for observable in observables
+            if observable.get("observable_type") in {"login_submit_redirect", "login_page_render"}
+        )
+        success_navigation = sum(
+            1
+            for observable in observables
+            if observable.get("observable_type") == "post_login_navigation"
+        )
+        score = min(1.0, (http_errors * 0.18) + (elevated * 0.14) + (login_churn * 0.08) + (success_navigation * 0.12))
         summary = (
-            f"Observed {len(events)} new event(s): {http_errors} HTTP 5xx responses, "
-            f"{elevated} elevated-severity events, {unusual_paths} potentially sensitive path deviations."
+            f"Observed {len(observables)} semantic observable(s): {http_errors} HTTP 5xx responses, "
+            f"{elevated} elevated-severity events, {login_churn} login-flow anomalies, "
+            f"{success_navigation} post-login navigation signals."
         )
 
         level = "warning" if score >= 0.55 else "info"
@@ -120,7 +143,11 @@ def build_blue_agent_graph(
             {
                 "level": level,
                 "message": f"Anomaly summary: {summary}",
-            }
+            },
+            {
+                "level": "info",
+                "message": f"Reasoning checkpoint: suspicion score updated to {round(score, 2):.2f}.",
+            },
         ]
         return {
             "anomaly_summary": summary,
@@ -130,8 +157,8 @@ def build_blue_agent_graph(
 
     def classify_attack(state: BlueAgentGraphState) -> BlueAgentGraphState:
         selected = state.get("selected_target") or {}
-        recent_events = state.get("recent_telemetry", [])
-        message_samples = [event.get("message", "") for event in recent_events if event.get("message")]
+        recent_observables = state.get("recent_observables", [])
+        message_samples = [observable.get("summary", "") for observable in recent_observables if observable.get("summary")]
         if not message_samples:
             # Temporary demo-friendly bootstrap context so the operator can see a
             # meaningful first LLM response immediately after starting Blue.
@@ -163,6 +190,16 @@ def build_blue_agent_graph(
                 "message": f"LLM summary: {reasoner_result.summary}",
             },
         ]
+        if state.get("new_evidence_event_ids"):
+            lines.append(
+                {
+                    "level": "info",
+                    "message": (
+                        "Reasoning checkpoint: correlating evidence ids "
+                        f"{', '.join(list(state.get('new_evidence_event_ids', []))[:5])}."
+                    ),
+                }
+            )
         if reasoner_result.evidence:
             lines.append(
                 {

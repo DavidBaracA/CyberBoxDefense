@@ -15,6 +15,9 @@ export default function BlueAgentPanel({
   logs,
   streamState,
   hasRunningTarget,
+  modelOptions,
+  selectedModelId,
+  onSelectModel,
   isStarting,
   isStopping,
   error,
@@ -43,6 +46,7 @@ export default function BlueAgentPanel({
         <div className="blue-agent-runtime-details">
           <span>Terminal stream: {streamState || "connecting"}</span>
           <span>Target: {state?.selected_target || "None selected"}</span>
+          <span>Model: {state?.selected_model_label || "Default"}</span>
           <span>Cycles: {state?.iteration_count ?? 0}</span>
           <span>
             Latest inference: {state?.predicted_attack_type || "No classification yet"}
@@ -57,6 +61,22 @@ export default function BlueAgentPanel({
             At least one vulnerable app must be running before the Blue agent can start.
           </p>
         ) : null}
+        <label className="blue-model-selector">
+          <span className="panel-copy">Blue reasoning model</span>
+          <select
+            value={selectedModelId || ""}
+            onChange={(event) => onSelectModel?.(event.target.value)}
+            disabled={status === "running" || status === "starting" || isStarting}
+          >
+            {Array.isArray(modelOptions)
+              ? modelOptions.map((option) => (
+                  <option key={option.model_id} value={option.model_id}>
+                    {option.label}
+                  </option>
+                ))
+              : null}
+          </select>
+        </label>
         {error ? <p className="error-banner">{error}</p> : null}
       </div>
 

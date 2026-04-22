@@ -16,8 +16,10 @@ from fastapi import HTTPException
 from ..blue_agent_models import (
     BlueAgentActionResponse,
     BlueAgentLogsResponse,
+    BlueAgentStartRequest,
     BlueAgentState,
     BlueAgentStatus,
+    BlueReasonerOption,
 )
 
 
@@ -44,7 +46,8 @@ class UnavailableBlueAgentService:
     def status(self) -> BlueAgentState:
         return self._state()
 
-    def start(self) -> BlueAgentActionResponse:
+    def start(self, payload: BlueAgentStartRequest | None = None) -> BlueAgentActionResponse:
+        _ = payload
         raise HTTPException(
             status_code=503,
             detail=(
@@ -63,7 +66,8 @@ class UnavailableBlueAgentService:
     def logs(self) -> BlueAgentLogsResponse:
         return BlueAgentLogsResponse(logs=[])
 
-    def register_stream(self) -> tuple[str, Any]:
+    def register_stream(self, run_id: str | None = None) -> tuple[str, Any]:
+        _ = run_id
         raise HTTPException(
             status_code=503,
             detail=(
@@ -71,6 +75,25 @@ class UnavailableBlueAgentService:
                 f"{self._detail}"
             ),
         )
+
+    def model_options(self) -> list[BlueReasonerOption]:
+        return [
+            BlueReasonerOption(
+                model_id="gemma3:4b",
+                label="Gemma 3 4B",
+                ollama_model="gemma3:4b",
+                description="Compact local model for Blue-side telemetry classification.",
+            ),
+            BlueReasonerOption(
+                model_id="deepseek_r1_8b",
+                label="DeepSeek R1 8B",
+                ollama_model="deepseek-r1:8b",
+                description="General reasoning-focused local model for Blue-side telemetry classification.",
+            ),
+        ]
+
+    def publish_detection(self, detection: Any) -> None:
+        _ = detection
 
     def unregister_stream(self, subscriber_id: str) -> None:
         _ = subscriber_id

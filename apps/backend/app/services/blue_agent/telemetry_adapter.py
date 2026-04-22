@@ -7,6 +7,10 @@ from typing import Any
 
 from ...models import TelemetryEvent
 from ...repository import InMemoryRepository
+from .observables import (
+    SemanticTelemetryInterpreter,
+    serialize_observable,
+)
 
 
 @dataclass
@@ -14,6 +18,7 @@ class TelemetrySnapshot:
     """One Blue-safe telemetry snapshot for a monitoring cycle."""
 
     events: list[dict[str, Any]]
+    observables: list[dict[str, Any]]
     next_cursor: int
     anomaly_counts: dict[str, int]
     evidence_event_ids: list[str]
@@ -30,6 +35,7 @@ class BlueTelemetryAdapter:
 
     def __init__(self, repository: InMemoryRepository) -> None:
         self._repository = repository
+        self._interpreter = SemanticTelemetryInterpreter()
 
     def snapshot_since(
         self,
@@ -39,30 +45,40 @@ class BlueTelemetryAdapter:
     ) -> TelemetrySnapshot:
         """Return telemetry added after the cursor, filtered to running targets."""
         events = self._repository.list_telemetry_events()
-        serialized_events = [serialize_telemetry_event(event) for event in events[cursor:]]
+        recent_events = events[cursor:]
+        serialized_events = [serialize_telemetry_event(event) for event in recent_events]
         if target_names:
-            filtered = [
-                event
-                for event in serialized_events
+            filtered_pairs = [
+                (event, serialized)
+                for event, serialized in zip(recent_events, serialized_events)
                 if (
-                    event.get("service_name") in target_names
-                    or event.get("container_name") in target_names
-                    or not event.get("service_name")
+                    serialized.get("service_name") in target_names
+                    or serialized.get("container_name") in target_names
+                    or not serialized.get("service_name")
                 )
             ]
         else:
-            filtered = serialized_events
+            filtered_pairs = list(zip(recent_events, serialized_events))
 
-        if not filtered and serialized_events:
+        if not filtered_pairs and serialized_events:
             # Keep the MVP demo useful even when telemetry producers do not yet
             # tag events with the deployed target's runtime name.
-            filtered = serialized_events
+            filtered_pairs = list(zip(recent_events, serialized_events))
 
+        filtered_events = [event for event, _ in filtered_pairs]
+        filtered = [serialized for _, serialized in filtered_pairs]
         truncated = filtered[-limit:]
+        observables = [
+            serialize_observable(observable)
+            for observable in self._interpreter.interpret_many(
+                filtered_events
+            )[-limit:]
+        ]
         anomaly_counts = self._compute_anomaly_counts(truncated)
         evidence_event_ids = [event["event_id"] for event in truncated if event["is_anomalous"]]
         return TelemetrySnapshot(
             events=truncated,
+            observables=observables,
             next_cursor=len(events),
             anomaly_counts=anomaly_counts,
             evidence_event_ids=evidence_event_ids,
@@ -109,8 +125,11 @@ def serialize_telemetry_event(event: TelemetryEvent) -> dict[str, Any]:
     )
     return {
         "event_id": event.event_id,
+        "run_id": event.run_id,
+        "app_id": event.app_id,
         "timestamp": event.timestamp.isoformat(),
         "source": event.source.value,
+        "source_type": event.source_type,
         "kind": event.kind.value,
         "severity": event.severity.value,
         "container_name": event.container_name,

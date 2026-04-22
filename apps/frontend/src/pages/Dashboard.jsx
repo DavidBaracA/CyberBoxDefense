@@ -3,20 +3,25 @@ import { useEffect, useState } from "react";
 import BlueAgentPanel from "../components/BlueAgentPanel";
 import DetectionList from "../components/DetectionList";
 import DeployAppModal from "../components/DeployAppModal";
+import ExperimentRunModal from "../components/ExperimentRunModal";
 import MetricsPanel from "../components/MetricsPanel";
 import RedAgentPanel from "../components/RedAgentPanel";
+import RedAgentSessionsModal from "../components/RedAgentSessionsModal";
 import StatusBar from "../components/StatusBar";
 import SummaryCard from "../components/SummaryCard";
 import TelemetryList from "../components/TelemetryList";
 import VulnerableAppsPanel from "../components/VulnerableAppsPanel";
 import {
+  createRun,
   deployVulnerableApp,
+  getBlueAgentModels,
   getBlueAgentWebSocketUrl,
   getDashboardSnapshot,
   getRedAgentWebSocketUrl,
+  getRunFormConfig,
   removeVulnerableApp,
   restartVulnerableApp,
-  startRedAgent,
+  startRun,
   startBlueAgent,
   stopVulnerableApp,
   stopRedAgent,
@@ -63,11 +68,15 @@ const initialState = {
 export default function Dashboard() {
   const [state, setState] = useState(initialState);
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
+  const [isExperimentModalOpen, setIsExperimentModalOpen] = useState(false);
+  const [isRedSessionsModalOpen, setIsRedSessionsModalOpen] = useState(false);
   const [appsLoading, setAppsLoading] = useState(true);
   const [appsError, setAppsError] = useState("");
   const [isSubmittingDeploy, setIsSubmittingDeploy] = useState(false);
   const [isActingOnApp, setIsActingOnApp] = useState(false);
   const [blueAgentError, setBlueAgentError] = useState("");
+  const [blueModelOptions, setBlueModelOptions] = useState([]);
+  const [selectedBlueModelId, setSelectedBlueModelId] = useState("gemma3:4b");
   const [isStartingBlueAgent, setIsStartingBlueAgent] = useState(false);
   const [isStoppingBlueAgent, setIsStoppingBlueAgent] = useState(false);
   const [blueAgentStreamState, setBlueAgentStreamState] = useState("connecting");
@@ -75,6 +84,7 @@ export default function Dashboard() {
   const [isStartingRedAgent, setIsStartingRedAgent] = useState(false);
   const [isStoppingRedAgent, setIsStoppingRedAgent] = useState(false);
   const [redAgentStreamState, setRedAgentStreamState] = useState("connecting");
+  const [runFormConfig, setRunFormConfig] = useState(null);
 
   async function refresh() {
     const snapshot = await getDashboardSnapshot();
@@ -102,6 +112,17 @@ export default function Dashboard() {
     async function refreshSafely() {
       try {
         await refresh();
+        const config = await getRunFormConfig();
+        const blueModels = await getBlueAgentModels();
+        if (isMounted) {
+          setRunFormConfig(config);
+          setBlueModelOptions(blueModels);
+          if (Array.isArray(blueModels) && blueModels.length > 0) {
+            setSelectedBlueModelId((current) =>
+              current || blueModels[0].model_id
+            );
+          }
+        }
       } catch (error) {
         if (!isMounted) {
           return;
@@ -327,7 +348,9 @@ export default function Dashboard() {
     setIsStartingBlueAgent(true);
     setBlueAgentError("");
     try {
-      await startBlueAgent();
+      await startBlueAgent({
+        model_id: selectedBlueModelId || undefined,
+      });
       await refresh();
     } catch (error) {
       setBlueAgentError(error.message);
@@ -353,7 +376,12 @@ export default function Dashboard() {
     setIsStartingRedAgent(true);
     setRedAgentError("");
     try {
-      await startRedAgent(payload);
+      const run = await createRun({
+        app_id: payload.target_app_id,
+        config: payload.config,
+      });
+      await startRun(run.run_id);
+      setIsExperimentModalOpen(false);
       await refresh();
     } catch (error) {
       setRedAgentError(error.message);
@@ -433,11 +461,10 @@ export default function Dashboard() {
           logs={state.redAgentLogs}
           streamState={redAgentStreamState}
           runningApps={state.vulnerableApps.filter((app) => app?.status === "running")}
-          scenarios={state.redAgentScenarios}
-          isStarting={isStartingRedAgent}
           isStopping={isStoppingRedAgent}
           error={redAgentError}
-          onStart={handleStartRedAgent}
+          onOpenStart={() => setIsExperimentModalOpen(true)}
+          onOpenSessions={() => setIsRedSessionsModalOpen(true)}
           onStop={handleStopRedAgent}
         />
 
@@ -446,6 +473,9 @@ export default function Dashboard() {
           logs={state.blueAgentLogs}
           streamState={blueAgentStreamState}
           hasRunningTarget={hasRunningTarget}
+          modelOptions={blueModelOptions}
+          selectedModelId={selectedBlueModelId}
+          onSelectModel={setSelectedBlueModelId}
           isStarting={isStartingBlueAgent}
           isStopping={isStoppingBlueAgent}
           error={blueAgentError}
@@ -475,6 +505,22 @@ export default function Dashboard() {
         isSubmitting={isSubmittingDeploy}
         error={appsError}
         templates={state.vulnerableAppTemplates}
+      />
+
+      <ExperimentRunModal
+        isOpen={isExperimentModalOpen}
+        onClose={() => setIsExperimentModalOpen(false)}
+        onStart={handleStartRedAgent}
+        isSubmitting={isStartingRedAgent}
+        error={redAgentError}
+        runningApps={state.vulnerableApps.filter((app) => app?.status === "running")}
+        scenarios={state.redAgentScenarios}
+        runFormConfig={runFormConfig}
+      />
+
+      <RedAgentSessionsModal
+        isOpen={isRedSessionsModalOpen}
+        onClose={() => setIsRedSessionsModalOpen(false)}
       />
     </main>
   );

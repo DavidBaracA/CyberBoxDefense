@@ -14,12 +14,19 @@ from ...blue_agent_models import (
     BlueAgentActionResponse,
     BlueAgentLogEntry,
     BlueAgentLogsResponse,
+    BlueAgentStartRequest,
     BlueAgentState,
     BlueAgentStatus,
+    BlueReasonerOption,
 )
-from ...models import DetectionEvent
+from ...models import ActionEvent, DetectionEvent, Severity
+from ..run_state_store import RunStateStore
 from .graph import build_blue_agent_graph
-from .reasoner import BlueReasoner, build_blue_reasoner_from_env
+from .reasoner import (
+    BlueReasoner,
+    build_blue_reasoner_from_env,
+    get_blue_reasoner_model_options,
+)
 from .state import BlueAgentGraphState
 from .telemetry_adapter import BlueTelemetryAdapter
 
@@ -44,19 +51,29 @@ class LangGraphBlueAgentManager:
         running_targets_provider: Callable[[], list[object]],
         telemetry_adapter: BlueTelemetryAdapter,
         detection_callback: Callable[[DetectionEvent], DetectionEvent],
+        action_callback: Optional[Callable[[ActionEvent], ActionEvent]] = None,
         reasoner: Optional[BlueReasoner] = None,
         poll_interval_seconds: float = 3.0,
+        run_id_provider: Optional[Callable[[], Optional[str]]] = None,
+        run_state_store: Optional[RunStateStore] = None,
     ) -> None:
         self._running_targets_provider = running_targets_provider
+        self._telemetry_adapter = telemetry_adapter
         self._detection_callback = detection_callback
+        self._action_callback = action_callback
         self._poll_interval_seconds = poll_interval_seconds
+        self._run_id_provider = run_id_provider
+        self._run_state_store = run_state_store
         self._state = BlueAgentState()
         self._logs: list[BlueAgentLogEntry] = []
         self._state_lock = threading.Lock()
         self._stream_lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
-        self._stream_subscribers: dict[str, tuple[asyncio.AbstractEventLoop, asyncio.Queue[dict[str, object]]]] = {}
+        self._stream_subscribers: dict[
+            str,
+            tuple[asyncio.AbstractEventLoop, asyncio.Queue[dict[str, object]], Optional[str]],
+        ] = {}
         self._reasoner = reasoner or build_blue_reasoner_from_env()
         self._graph = build_blue_agent_graph(telemetry_adapter, self._reasoner)
         self._graph_state: BlueAgentGraphState = {
@@ -65,9 +82,73 @@ class LangGraphBlueAgentManager:
             "iteration_count": 0,
             "cycle_terminal_lines": [],
             "recent_telemetry": [],
+            "recent_observables": [],
             "available_targets": [],
         }
         self._last_detection_signature: Optional[str] = None
+
+    def model_options(self) -> list[BlueReasonerOption]:
+        """Return the allowlisted Blue model options for the UI."""
+        return [
+            BlueReasonerOption(
+                model_id=option.model_id,
+                label=option.label,
+                ollama_model=option.ollama_model,
+                description=option.description,
+            )
+            for option in get_blue_reasoner_model_options()
+        ]
+
+    def _sync_run_state_store(self) -> None:
+        if not self._run_state_store or not self._run_id_provider:
+            return
+        run_id = self._run_id_provider()
+        if not run_id:
+            return
+        self._run_state_store.update_blue_status(run_id, self._state.model_copy(deep=True))
+
+    def _current_run_id(self) -> Optional[str]:
+        if not self._run_id_provider:
+            return None
+        return self._run_id_provider()
+
+    def _stream_event(
+        self,
+        event_type: str,
+        payload: dict[str, object],
+        *,
+        legacy: Optional[dict[str, object]] = None,
+        run_id: Optional[str] = None,
+    ) -> dict[str, object]:
+        resolved_run_id = run_id if run_id is not None else self._current_run_id()
+        event = {
+            "event_type": event_type,
+            "run_id": resolved_run_id,
+            "timestamp": utc_now().isoformat(),
+            "payload": payload,
+        }
+        if legacy:
+            event.update(legacy)
+        return event
+
+    def _record_action(
+        self,
+        action: str,
+        status: str = "recorded",
+        details: Optional[dict[str, object]] = None,
+    ) -> None:
+        if not self._action_callback:
+            return
+        self._action_callback(
+            ActionEvent(
+                actor="blue_agent",
+                action=action,
+                target_type="runtime",
+                target_id=self._state.selected_target or "",
+                status=status,
+                details=details or {},
+            )
+        )
 
     def _running_targets(self) -> list[object]:
         return self._running_targets_provider()
@@ -85,10 +166,14 @@ class LangGraphBlueAgentManager:
         self._logs.append(entry)
         self._logs = self._logs[-400:]
         self._broadcast_stream_event(
-            {
-                "type": "log",
-                "entry": entry.model_dump(mode="json"),
-            }
+            self._stream_event(
+                "log_entry",
+                {"entry": entry.model_dump(mode="json")},
+                legacy={
+                    "type": "log",
+                    "entry": entry.model_dump(mode="json"),
+                },
+            )
         )
 
     def _broadcast_stream_event(self, event: dict[str, object]) -> None:
@@ -96,7 +181,10 @@ class LangGraphBlueAgentManager:
             subscribers = list(self._stream_subscribers.items())
 
         stale_ids: list[str] = []
-        for subscriber_id, (loop, queue) in subscribers:
+        event_run_id = event.get("run_id")
+        for subscriber_id, (loop, queue, subscriber_run_id) in subscribers:
+            if subscriber_run_id and event_run_id and subscriber_run_id != event_run_id:
+                continue
             try:
                 loop.call_soon_threadsafe(queue.put_nowait, event)
             except RuntimeError:
@@ -106,9 +194,18 @@ class LangGraphBlueAgentManager:
             self.unregister_stream(subscriber_id)
 
     def _broadcast_reset(self) -> None:
-        self._broadcast_stream_event({"type": "reset"})
+        self._broadcast_stream_event(
+            self._stream_event(
+                "stream_reset",
+                {},
+                legacy={"type": "reset"},
+            )
+        )
 
-    def register_stream(self) -> tuple[str, asyncio.Queue[dict[str, object]]]:
+    def register_stream(
+        self,
+        run_id: Optional[str] = None,
+    ) -> tuple[str, asyncio.Queue[dict[str, object]]]:
         """Register one WebSocket subscriber and seed it with current history.
 
         TODO:
@@ -120,11 +217,33 @@ class LangGraphBlueAgentManager:
         queue: asyncio.Queue[dict[str, object]] = asyncio.Queue()
         subscriber_id = str(uuid4())
         with self._stream_lock:
-            self._stream_subscribers[subscriber_id] = (loop, queue)
+            self._stream_subscribers[subscriber_id] = (loop, queue, run_id)
 
+        current_run_id = self._current_run_id()
         history = [entry.model_dump(mode="json") for entry in self._logs]
-        queue.put_nowait({"type": "history", "logs": history})
-        queue.put_nowait({"type": "status", "state": self.status().model_dump(mode="json")})
+        if not run_id or not current_run_id or run_id == current_run_id:
+            queue.put_nowait(
+                self._stream_event(
+                    "history_snapshot",
+                    {"logs": history},
+                    legacy={"type": "history", "logs": history},
+                    run_id=current_run_id,
+                )
+            )
+            state = self.status().model_dump(mode="json")
+            queue.put_nowait(
+                self._stream_event(
+                    "status_update",
+                    {
+                        "state": state,
+                        "confidence": state.get("confidence"),
+                        "detection_label": state.get("predicted_attack_type"),
+                        "containment_decision": None,
+                    },
+                    legacy={"type": "status", "state": state},
+                    run_id=current_run_id,
+                )
+            )
         return subscriber_id, queue
 
     def unregister_stream(self, subscriber_id: str) -> None:
@@ -177,13 +296,43 @@ class LangGraphBlueAgentManager:
             detector="langgraph_blue_agent",
             classification=str(candidate.get("classification", "anomalous_web_activity")),
             confidence=float(candidate.get("confidence", 0.0)),
+            severity=Severity.WARNING,
             summary=str(candidate.get("summary", "Blue-agent detection emitted.")),
+            supporting_evidence=list(candidate.get("metadata", {}).get("evidence", []))[:5],
             evidence_event_ids=evidence_ids,
             metadata=dict(candidate.get("metadata", {})),
         )
-        self._detection_callback(detection)
+        stored_detection = self._detection_callback(detection)
         self._last_detection_signature = signature
+        self.publish_detection(stored_detection)
         self._append_log("Detection emitted to the backend detection store.", level="warning")
+
+    def publish_detection(self, detection: DetectionEvent) -> None:
+        """Publish one detection event onto the Blue WebSocket stream."""
+        evidence_ids = ", ".join(detection.evidence_event_ids[:5]) or "none"
+        self._append_log(
+            (
+                f"Detection reasoning: {detection.classification} at confidence "
+                f"{detection.confidence:.2f}; severity {detection.severity.value}; "
+                f"evidence ids {evidence_ids}."
+            ),
+            level="warning" if detection.severity.value in {"warning", "high"} else "info",
+        )
+        self._broadcast_stream_event(
+            self._stream_event(
+                "detection_emitted",
+                {
+                    "detection": detection.model_dump(mode="json"),
+                    "confidence": detection.confidence,
+                    "containment_decision": None,
+                },
+                legacy={
+                    "type": "detection",
+                    "detection": detection.model_dump(mode="json"),
+                },
+                run_id=detection.run_id,
+            )
+        )
 
     def _apply_graph_state_to_public_state(self, state: BlueAgentGraphState) -> None:
         selected_target = state.get("selected_target") or {}
@@ -203,11 +352,21 @@ class LangGraphBlueAgentManager:
                 f"Blue agent monitoring cycle completed successfully via {reasoner_name}."
             )
         self._broadcast_stream_event(
-            {
-                "type": "status",
-                "state": self._state.model_dump(mode="json"),
-            }
+            self._stream_event(
+                "status_update",
+                {
+                    "state": self._state.model_dump(mode="json"),
+                    "confidence": self._state.confidence,
+                    "detection_label": self._state.predicted_attack_type,
+                    "containment_decision": None,
+                },
+                legacy={
+                    "type": "status",
+                    "state": self._state.model_dump(mode="json"),
+                },
+            )
         )
+        self._sync_run_state_store()
 
     def _run_cycle(self) -> None:
         targets = self._running_targets()
@@ -244,11 +403,21 @@ class LangGraphBlueAgentManager:
                 self._state.message = f"Blue agent runtime error: {exc}"
             self._append_log(f"Blue agent runtime error: {exc}", level="error")
             self._broadcast_stream_event(
-                {
-                    "type": "status",
-                    "state": self._state.model_dump(mode="json"),
-                }
+                self._stream_event(
+                    "status_update",
+                    {
+                        "state": self._state.model_dump(mode="json"),
+                        "confidence": self._state.confidence,
+                        "detection_label": self._state.predicted_attack_type,
+                        "containment_decision": None,
+                    },
+                    legacy={
+                        "type": "status",
+                        "state": self._state.model_dump(mode="json"),
+                    },
+                )
             )
+            self._sync_run_state_store()
         finally:
             self._thread = None
 
@@ -266,9 +435,10 @@ class LangGraphBlueAgentManager:
         if should_stop:
             self.stop(reason="Blue agent stopped because no vulnerable targets remain running.")
             return self._state.model_copy(deep=True)
+        self._sync_run_state_store()
         return state_copy
 
-    def start(self) -> BlueAgentActionResponse:
+    def start(self, payload: BlueAgentStartRequest | None = None) -> BlueAgentActionResponse:
         running_targets = self._running_targets()
         if not running_targets:
             raise HTTPException(
@@ -287,6 +457,9 @@ class LangGraphBlueAgentManager:
                     state=self._state.model_copy(deep=True),
                 )
 
+            requested_model_id = payload.model_id if payload else None
+            self._reasoner = build_blue_reasoner_from_env(requested_model_id)
+            self._graph = build_blue_agent_graph(self._telemetry_adapter, self._reasoner)
             target_names = [getattr(target, "name", "unknown-target") for target in running_targets]
             self._stop_event = threading.Event()
             self._logs = []
@@ -298,6 +471,7 @@ class LangGraphBlueAgentManager:
                 "iteration_count": 0,
                 "cycle_terminal_lines": [],
                 "recent_telemetry": [],
+                "recent_observables": [],
                 "available_targets": self._serialize_targets(running_targets),
                 "selected_target": None,
                 "last_detection": None,
@@ -306,6 +480,8 @@ class LangGraphBlueAgentManager:
                 status=BlueAgentStatus.STARTING,
                 active_target_count=len(target_names),
                 active_target_names=target_names,
+                selected_model_id=getattr(self._reasoner, "selected_model_id", None),
+                selected_model_label=getattr(self._reasoner, "selected_model_label", None),
                 last_started_at=utc_now(),
                 last_stopped_at=self._state.last_stopped_at,
                 message="Blue agent is starting and preparing the LangGraph monitoring loop.",
@@ -323,18 +499,40 @@ class LangGraphBlueAgentManager:
                 f"Reasoning backend selected: {getattr(self._reasoner, 'name', 'unknown')}.",
                 level="info",
             )
+            if self._state.selected_model_label:
+                self._append_log(
+                    f"Reasoning model selected: {self._state.selected_model_label}.",
+                    level="info",
+                )
             self._broadcast_stream_event(
-                {
-                    "type": "status",
-                    "state": self._state.model_dump(mode="json"),
-                }
+                self._stream_event(
+                    "status_update",
+                    {
+                        "state": self._state.model_dump(mode="json"),
+                        "confidence": self._state.confidence,
+                        "detection_label": self._state.predicted_attack_type,
+                        "containment_decision": None,
+                    },
+                    legacy={
+                        "type": "status",
+                        "state": self._state.model_dump(mode="json"),
+                    },
+                )
             )
+            self._sync_run_state_store()
             self._thread = threading.Thread(
                 target=self._run_loop,
                 name="cyberbox-blue-agent",
                 daemon=True,
             )
             self._thread.start()
+            self._record_action(
+                "start",
+                details={
+                    "active_targets": target_names,
+                    "reasoner": getattr(self._reasoner, "name", "unknown"),
+                },
+            )
             return BlueAgentActionResponse(
                 success=True,
                 message="Blue agent started.",
@@ -355,6 +553,8 @@ class LangGraphBlueAgentManager:
                 suspicion_score=self._state.suspicion_score,
                 predicted_attack_type=self._state.predicted_attack_type,
                 confidence=self._state.confidence,
+                selected_model_id=self._state.selected_model_id,
+                selected_model_label=self._state.selected_model_label,
                 last_started_at=previous_started_at,
                 last_stopped_at=utc_now(),
                 message=reason,
@@ -365,12 +565,23 @@ class LangGraphBlueAgentManager:
                 message=reason,
                 state=self._state.model_copy(deep=True),
             )
+            self._record_action("stop", details={"reason": reason})
             self._broadcast_stream_event(
-                {
-                    "type": "status",
-                    "state": self._state.model_dump(mode="json"),
-                }
+                self._stream_event(
+                    "status_update",
+                    {
+                        "state": self._state.model_dump(mode="json"),
+                        "confidence": self._state.confidence,
+                        "detection_label": self._state.predicted_attack_type,
+                        "containment_decision": None,
+                    },
+                    legacy={
+                        "type": "status",
+                        "state": self._state.model_dump(mode="json"),
+                    },
+                )
             )
+            self._sync_run_state_store()
 
         if thread and thread.is_alive() and thread is not threading.current_thread():
             thread.join(timeout=0.2)

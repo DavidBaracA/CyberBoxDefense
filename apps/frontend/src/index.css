@@ -200,6 +200,13 @@ h2 {
   padding: 1rem;
 }
 
+.telemetry-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 36rem;
+  max-height: 36rem;
+}
+
 .panel-header {
   margin-bottom: 0.9rem;
 }
@@ -214,6 +221,31 @@ h2 {
 .stream-list {
   display: grid;
   gap: 0.85rem;
+}
+
+.telemetry-stream-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 0.35rem;
+}
+
+.telemetry-stream-list::-webkit-scrollbar {
+  width: 0.65rem;
+}
+
+.telemetry-stream-list::-webkit-scrollbar-track {
+  background: rgba(5, 11, 18, 0.45);
+  border-radius: 999px;
+}
+
+.telemetry-stream-list::-webkit-scrollbar-thumb {
+  background: rgba(98, 208, 255, 0.3);
+  border-radius: 999px;
+}
+
+.telemetry-stream-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(98, 208, 255, 0.46);
 }
 
 .stream-item {
@@ -317,6 +349,22 @@ h2 {
   margin-bottom: 1rem;
 }
 
+.blue-model-selector {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.85rem;
+}
+
+.blue-model-selector select {
+  width: 100%;
+  min-height: 2.5rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(137, 177, 217, 0.24);
+  background: rgba(11, 18, 32, 0.92);
+  color: var(--text-primary);
+  padding: 0.65rem 0.8rem;
+}
+
 .red-agent-actions {
   margin-bottom: 1rem;
 }
@@ -370,6 +418,17 @@ h2 {
   margin-bottom: 1rem;
 }
 
+.experiment-config-card {
+  padding: 0.95rem;
+  border-radius: 16px;
+  border: 1px solid rgba(98, 208, 255, 0.14);
+  background: rgba(5, 11, 18, 0.72);
+}
+
+.experiment-config-grid {
+  margin-bottom: 0;
+}
+
 .control-field {
   display: grid;
   gap: 0.45rem;
@@ -388,33 +447,76 @@ h2 {
   background: rgba(5, 11, 18, 0.72);
 }
 
+.toggle-field {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding: 0.85rem;
+  border-radius: 14px;
+  background: rgba(5, 11, 18, 0.72);
+  border: 1px solid rgba(98, 208, 255, 0.12);
+}
+
+.toggle-field input {
+  margin-top: 0.25rem;
+}
+
+.toggle-field span {
+  display: grid;
+  gap: 0.15rem;
+}
+
 .scenario-checklist {
   display: grid;
   gap: 0.7rem;
 }
 
 .scenario-option {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr;
   gap: 0.75rem;
   padding: 0.85rem;
   border-radius: 14px;
   background: rgba(5, 11, 18, 0.72);
   border: 1px solid rgba(255, 182, 92, 0.12);
-  align-items: flex-start;
+  align-items: start;
 }
 
 .scenario-option input {
-  margin-top: 0.2rem;
+  margin-top: 0.25rem;
 }
 
 .scenario-option span {
   display: grid;
   gap: 0.2rem;
+  min-width: 0;
 }
 
 .scenario-option small,
 .helper-copy {
   color: var(--text-soft);
+}
+
+.artifact-preview {
+  margin-bottom: 1rem;
+  padding: 0.95rem;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 182, 92, 0.12);
+  background: rgba(5, 11, 18, 0.72);
+}
+
+.artifact-image {
+  display: block;
+  width: 100%;
+  max-height: 280px;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 182, 92, 0.18);
+}
+
+.artifact-path {
+  margin-top: 0.65rem;
+  word-break: break-word;
 }
 
 .primary-button,
@@ -488,6 +590,18 @@ a:hover {
   padding: 1rem;
 }
 
+.experiment-run-modal {
+  width: min(760px, 100%);
+  max-height: min(90vh, 900px);
+  overflow-y: auto;
+}
+
+.red-sessions-modal {
+  width: min(1120px, 100%);
+  max-height: min(92vh, 960px);
+  overflow-y: auto;
+}
+
 .modal-header {
   display: flex;
   align-items: flex-start;
@@ -532,6 +646,138 @@ a:hover {
 .warning-copy {
   margin-bottom: 0;
   color: var(--accent-warm);
+}
+
+.red-sessions-layout {
+  display: grid;
+  grid-template-columns: minmax(250px, 320px) minmax(0, 1fr);
+  gap: 1rem;
+  min-height: 460px;
+}
+
+.red-sessions-sidebar,
+.red-sessions-content,
+.session-detail-summary,
+.session-vulnerability-card,
+.session-gallery-preview,
+.session-metadata-item {
+  border-radius: 16px;
+  border: 1px solid rgba(111, 193, 255, 0.12);
+  background: rgba(5, 11, 18, 0.72);
+}
+
+.red-sessions-sidebar,
+.red-sessions-content {
+  padding: 0.9rem;
+}
+
+.red-session-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.red-session-list-item {
+  width: 100%;
+  text-align: left;
+  border-radius: 14px;
+  border: 1px solid rgba(111, 193, 255, 0.14);
+  background: rgba(3, 8, 13, 0.78);
+  padding: 0.85rem;
+}
+
+.red-session-list-item.is-selected {
+  border-color: rgba(111, 193, 255, 0.42);
+  box-shadow: 0 0 0 1px rgba(111, 193, 255, 0.2);
+}
+
+.red-session-list-heading,
+.session-vulnerability-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.session-detail {
+  display: grid;
+  gap: 1rem;
+}
+
+.session-detail-summary,
+.session-vulnerability-card,
+.session-metadata-item {
+  padding: 0.95rem;
+}
+
+.session-summary-grid,
+.session-metadata-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.8rem;
+}
+
+.session-summary-label {
+  display: block;
+  margin-bottom: 0.25rem;
+  color: #7ea0ba;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.session-vulnerability-list {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.session-severity-badge {
+  text-transform: uppercase;
+}
+
+.session-gallery {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.session-gallery-preview {
+  display: block;
+  overflow: hidden;
+}
+
+.session-gallery-preview img,
+.session-gallery-thumb img {
+  width: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.session-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.7rem;
+}
+
+.session-gallery-thumb {
+  border-radius: 12px;
+  border: 1px solid rgba(111, 193, 255, 0.14);
+  background: rgba(3, 8, 13, 0.78);
+  padding: 0.45rem;
+  text-align: left;
+}
+
+.session-gallery-thumb.is-selected {
+  border-color: rgba(111, 193, 255, 0.42);
+}
+
+.session-gallery-thumb span {
+  display: block;
+  margin-top: 0.45rem;
+  color: var(--text-soft);
+  font-size: 0.84rem;
+}
+
+.session-log-terminal {
+  max-height: 260px;
 }
 
 .blue-terminal {
@@ -588,6 +834,10 @@ a:hover {
   }
 
   .agent-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .red-sessions-layout {
     grid-template-columns: 1fr;
   }
 }

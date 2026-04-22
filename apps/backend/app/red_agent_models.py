@@ -38,15 +38,44 @@ class AttackScenario(BaseModel):
     scenario_id: str
     display_name: str
     description: str
+    execution_mode: str = "http"
     enabled: bool = True
     notes: Optional[str] = None
+
+
+class RedReasonerOption(BaseModel):
+    """One selectable Red planning model option for operator experiments."""
+
+    model_id: str
+    label: str
+    ollama_model: str
+    description: str
+
+
+class AttackTechniquePlan(BaseModel):
+    """One planned Red-agent technique step before execution begins."""
+
+    technique_id: str
+    technique_name: str
+    estimated_cost: int = Field(ge=1)
+    estimated_difficulty: str
+    priority_order: int = Field(ge=1)
+
+
+class AttackExecutionPlan(BaseModel):
+    """Deterministic ordered attack plan generated from a run configuration."""
+
+    techniques: list[AttackTechniquePlan] = Field(default_factory=list)
+    planner_name: str = "heuristic"
+    planner_rationale: Optional[str] = None
 
 
 class RedAgentStartRequest(BaseModel):
     """Request to start one bounded Red-agent run."""
 
-    target_app_id: str = Field(min_length=1)
-    scenario_ids: list[str] = Field(min_length=1)
+    run_id: Optional[str] = None
+    target_app_id: Optional[str] = None
+    scenario_ids: list[str] = Field(default_factory=list)
 
     @field_validator("scenario_ids")
     @classmethod
@@ -56,9 +85,15 @@ class RedAgentStartRequest(BaseModel):
             item = value.strip()
             if item and item not in cleaned:
                 cleaned.append(item)
-        if not cleaned:
-            raise ValueError("scenario_ids must contain at least one scenario")
         return cleaned
+
+    @field_validator("run_id", "target_app_id")
+    @classmethod
+    def normalize_optional_identifiers(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
 
 
 class RedAgentLogEvent(BaseModel):
@@ -89,10 +124,18 @@ class AttackRunRecord(BaseModel):
     target_name: Optional[str] = None
     target_url: Optional[str] = None
     selected_scenarios: list[str] = Field(default_factory=list)
+    selected_model_id: Optional[str] = None
+    selected_model_label: Optional[str] = None
+    current_technique: Optional[str] = None
+    completed_techniques: list[str] = Field(default_factory=list)
+    remaining_techniques: list[str] = Field(default_factory=list)
+    remaining_time_budget_seconds: Optional[int] = None
     status: RedAgentRunStatus = RedAgentRunStatus.IDLE
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     emitted_events_count: int = 0
+    latest_artifact_path: Optional[str] = None
+    latest_artifact_url: Optional[str] = None
     message: str = "Red agent is idle."
 
 
@@ -113,3 +156,57 @@ class RedAgentLogsResponse(BaseModel):
 
     logs: list[RedAgentLogEvent] = Field(default_factory=list)
 
+
+class RedAgentSessionScreenshot(BaseModel):
+    """One screenshot captured during a completed Red-agent session."""
+
+    screenshot_id: str = Field(default_factory=lambda: str(uuid4()))
+    scenario_id: Optional[str] = None
+    scenario_name: Optional[str] = None
+    filename: str
+    artifact_path: str
+    artifact_url: str
+    captured_at: datetime = Field(default_factory=utc_now)
+    summary: Optional[str] = None
+
+
+class RedAgentSessionVulnerability(BaseModel):
+    """One vulnerability observed during a completed Red-agent session."""
+
+    vulnerability_id: str = Field(default_factory=lambda: str(uuid4()))
+    scenario_id: Optional[str] = None
+    type: str
+    title: str
+    severity: str
+    location: Optional[str] = None
+    evidence: Optional[str] = None
+    discovered_at: datetime = Field(default_factory=utc_now)
+
+
+class RedAgentSessionSummary(BaseModel):
+    """Operator-facing summary for a completed Red-agent session."""
+
+    session_id: str
+    started_at: datetime
+    ended_at: Optional[datetime] = None
+    target_app_id: Optional[str] = None
+    target_name: Optional[str] = None
+    target_url: Optional[str] = None
+    status: RedAgentRunStatus = RedAgentRunStatus.COMPLETED
+    vulnerability_count: int = 0
+    screenshot_count: int = 0
+    is_latest: bool = False
+    summary: Optional[str] = None
+
+
+class RedAgentSessionDetail(RedAgentSessionSummary):
+    """Detailed operator view for a completed Red-agent session."""
+
+    selected_scenarios: list[str] = Field(default_factory=list)
+    selected_model_id: Optional[str] = None
+    selected_model_label: Optional[str] = None
+    completed_techniques: list[str] = Field(default_factory=list)
+    logs: list[RedAgentLogEvent] = Field(default_factory=list)
+    screenshots: list[RedAgentSessionScreenshot] = Field(default_factory=list)
+    vulnerabilities: list[RedAgentSessionVulnerability] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)

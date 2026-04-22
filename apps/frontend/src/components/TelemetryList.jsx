@@ -11,7 +11,7 @@ export default function TelemetryList({ items }) {
   const rows = Array.isArray(items) ? items : [];
 
   return (
-    <section className="panel stream-panel">
+    <section className="panel stream-panel telemetry-panel">
       <div className="panel-header">
         <h2>Telemetry Stream</h2>
         <p className="panel-copy">
@@ -19,11 +19,11 @@ export default function TelemetryList({ items }) {
         </p>
       </div>
 
-      {rows.length === 0 ? (
-        <p className="empty-state">No telemetry events available yet.</p>
-      ) : (
-        <div className="stream-list">
-          {rows.map((item, index) => (
+      <div className="stream-list telemetry-stream-list">
+        {rows.length === 0 ? (
+          <p className="empty-state">No telemetry events available yet.</p>
+        ) : (
+          rows.map((item, index) => (
             <article className="stream-item" key={item.event_id || `${item.timestamp}-${index}`}>
               <div className="stream-topline">
                 <span className="pill">{item.kind || item.event_type || "unknown"}</span>
@@ -36,9 +36,9 @@ export default function TelemetryList({ items }) {
                 <span>HTTP: {item.http_status ?? "N/A"}</span>
               </div>
             </article>
-          ))}
-        </div>
-      )}
+          ))
+        )}
+      </div>
     </section>
   );
 }

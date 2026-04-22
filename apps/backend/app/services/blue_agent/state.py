@@ -40,6 +40,7 @@ class BlueAgentGraphState(TypedDict, total=False):
     selected_target: Optional[dict[str, Any]]
     telemetry_cursor: int
     recent_telemetry: list[dict[str, Any]]
+    recent_observables: list[dict[str, Any]]
     new_evidence_event_ids: list[str]
     anomaly_summary: str
     suspicion_score: float
@@ -49,4 +50,3 @@ class BlueAgentGraphState(TypedDict, total=False):
     last_detection: Optional[BlueDetectionCandidate]
     cycle_terminal_lines: list[BlueTerminalLine]
     iteration_count: int
-

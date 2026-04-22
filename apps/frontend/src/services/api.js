@@ -9,9 +9,12 @@ const endpointGroups = {
   vulnerableAppTemplates: ["/apps/templates"],
   blueAgentStatus: ["/blue-agent/status"],
   blueAgentLogs: ["/blue-agent/logs"],
+  blueAgentModels: ["/blue-agent/models"],
   redAgentStatus: ["/red-agent/status"],
   redAgentScenarios: ["/red-agent/scenarios"],
   redAgentLogs: ["/red-agent/logs"],
+  redAgentSessions: ["/red-agent/sessions"],
+  configRunForm: ["/api/config/run-form"],
 };
 
 function buildWebSocketUrl(path) {
@@ -162,9 +165,18 @@ export async function getBlueAgentLogs() {
   return asArray(payload, ["logs", "items"]);
 }
 
-export async function startBlueAgent() {
+export async function getBlueAgentModels() {
+  const { payload } = await tryEndpoints(endpointGroups.blueAgentModels, []);
+  return asArray(payload, ["models", "items"]);
+}
+
+export async function startBlueAgent(request = {}) {
   return fetchJson("/blue-agent/start", {
     method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(request),
   });
 }
 
@@ -188,6 +200,15 @@ export async function getRedAgentScenarios() {
   return asArray(payload, ["scenarios", "items"]);
 }
 
+export async function getRedAgentSessions() {
+  const { payload } = await tryEndpoints(endpointGroups.redAgentSessions, []);
+  return asArray(payload, ["sessions", "items"]);
+}
+
+export async function getRedAgentSessionDetail(sessionId) {
+  return fetchJson(`/red-agent/sessions/${sessionId}`);
+}
+
 export async function startRedAgent(request) {
   return fetchJson("/red-agent/start", {
     method: "POST",
@@ -195,6 +216,27 @@ export async function startRedAgent(request) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(request),
+  });
+}
+
+export async function getRunFormConfig() {
+  const { payload } = await tryEndpoints(endpointGroups.configRunForm, {});
+  return asObject(payload);
+}
+
+export async function createRun(request) {
+  return fetchJson("/api/runs", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(request),
+  });
+}
+
+export async function startRun(runId) {
+  return fetchJson(`/api/runs/${runId}/start`, {
+    method: "POST",
   });
 }
 

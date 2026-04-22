@@ -36,6 +36,15 @@ class BlueAgentLogEntry(BaseModel):
     message: str
 
 
+class BlueReasonerOption(BaseModel):
+    """One selectable Blue reasoning model option for the operator UI."""
+
+    model_id: str
+    label: str
+    ollama_model: str
+    description: str
+
+
 class BlueAgentState(BaseModel):
     """Current Blue-agent runtime state."""
 
@@ -47,9 +56,17 @@ class BlueAgentState(BaseModel):
     suspicion_score: Optional[float] = None
     predicted_attack_type: Optional[str] = None
     confidence: Optional[float] = None
+    selected_model_id: Optional[str] = None
+    selected_model_label: Optional[str] = None
     last_started_at: Optional[datetime] = None
     last_stopped_at: Optional[datetime] = None
     message: str = "Blue agent is idle."
+
+
+class BlueAgentStartRequest(BaseModel):
+    """Optional runtime start payload for selecting the Blue reasoning model."""
+
+    model_id: Optional[str] = None
 
 
 class BlueAgentActionResponse(BaseModel):

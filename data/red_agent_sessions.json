@@ -1,0 +1,623 @@
+[
+  {
+    "session_id": "96a790db-b00e-4169-9810-d352fd805de2",
+    "started_at": "2026-04-21T10:16:50.475060Z",
+    "ended_at": "2026-04-21T10:17:09.350549Z",
+    "target_app_id": "a0dc676b-251a-475d-be6b-b6ff26804b0a",
+    "target_name": "juice",
+    "target_url": "http://localhost:3000",
+    "status": "completed",
+    "vulnerability_count": 0,
+    "screenshot_count": 0,
+    "is_latest": false,
+    "summary": "Red agent completed the planned techniques.",
+    "selected_scenarios": [
+      "browser_homepage_smoke",
+      "browser_login_navigation",
+      "browser_login_bruteforce"
+    ],
+    "selected_model_id": "deepseek_r1_8b",
+    "selected_model_label": "DeepSeek R1 8B",
+    "completed_techniques": [
+      "browser_homepage_smoke",
+      "browser_login_navigation",
+      "browser_login_bruteforce"
+    ],
+    "logs": [
+      {
+        "timestamp": "2026-04-21T10:16:50.475818Z",
+        "level": "info",
+        "message": "Red agent initialization started."
+      },
+      {
+        "timestamp": "2026-04-21T10:16:50.476172Z",
+        "level": "info",
+        "message": "Attached to run 96a790db-b00e-4169-9810-d352fd805de2."
+      },
+      {
+        "timestamp": "2026-04-21T10:16:50.476274Z",
+        "level": "info",
+        "message": "Validated managed target: juice."
+      },
+      {
+        "timestamp": "2026-04-21T10:16:50.476470Z",
+        "level": "info",
+        "message": "Planning backend selected: ollama via DeepSeek R1 8B."
+      },
+      {
+        "timestamp": "2026-04-21T10:16:50.476594Z",
+        "level": "info",
+        "message": "Planning rationale: The ordered scenarios start with a smoke test to verify basic functionality, then proceed to navigation to identify login areas, and finally attempt a bounded brute-force if login is available. This sequence ensures a balanced approach by first confirming the target is accessible, then exploring authentication paths methodically without overwhelming the system."
+      },
+      {
+        "timestamp": "2026-04-21T10:16:50.476777Z",
+        "level": "info",
+        "message": "Planned techniques: browser_homepage_smoke, browser_login_navigation, browser_login_bruteforce."
+      },
+      {
+        "timestamp": "2026-04-21T10:16:50.492143Z",
+        "level": "info",
+        "message": "Selected target URL: http://localhost:3000"
+      },
+      {
+        "timestamp": "2026-04-21T10:16:50.505371Z",
+        "level": "info",
+        "message": "Running browser scenario: Browser Homepage Smoke."
+      },
+      {
+        "timestamp": "2026-04-21T10:16:58.330320Z",
+        "level": "info",
+        "message": "Loaded homepage and captured screenshot at /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/juice_shop-96a790db-b00e-4169-9810-d352fd805de2-homepage.png."
+      },
+      {
+        "timestamp": "2026-04-21T10:16:58.330552Z",
+        "level": "info",
+        "message": "Playwright screenshot saved to /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/juice_shop-96a790db-b00e-4169-9810-d352fd805de2-homepage.png."
+      },
+      {
+        "timestamp": "2026-04-21T10:16:58.481551Z",
+        "level": "info",
+        "message": "Running browser scenario: Browser Login Navigation."
+      },
+      {
+        "timestamp": "2026-04-21T10:17:02.441850Z",
+        "level": "info",
+        "message": "Opened login/navigation view and captured screenshot at /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/juice_shop-96a790db-b00e-4169-9810-d352fd805de2-login-navigation.png."
+      },
+      {
+        "timestamp": "2026-04-21T10:17:02.442046Z",
+        "level": "info",
+        "message": "Playwright screenshot saved to /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/juice_shop-96a790db-b00e-4169-9810-d352fd805de2-login-navigation.png."
+      },
+      {
+        "timestamp": "2026-04-21T10:17:02.572241Z",
+        "level": "info",
+        "message": "Running browser scenario: Browser Login Brute-Force."
+      },
+      {
+        "timestamp": "2026-04-21T10:17:09.206451Z",
+        "level": "info",
+        "message": "Attempted a bounded browser login brute-force sequence and captured screenshot at /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/juice_shop-96a790db-b00e-4169-9810-d352fd805de2-login-bruteforce.png."
+      },
+      {
+        "timestamp": "2026-04-21T10:17:09.206731Z",
+        "level": "info",
+        "message": "Playwright screenshot saved to /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/juice_shop-96a790db-b00e-4169-9810-d352fd805de2-login-bruteforce.png."
+      },
+      {
+        "timestamp": "2026-04-21T10:17:09.350608Z",
+        "level": "info",
+        "message": "Attack run finished."
+      }
+    ],
+    "screenshots": [
+      {
+        "screenshot_id": "69b25313-ab53-4f85-9b9c-0df3533719ae",
+        "scenario_id": "browser_homepage_smoke",
+        "scenario_name": "Browser Homepage Smoke",
+        "filename": "juice_shop-96a790db-b00e-4169-9810-d352fd805de2-homepage.png",
+        "artifact_path": "/Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/juice_shop-96a790db-b00e-4169-9810-d352fd805de2-homepage.png",
+        "artifact_url": "/artifacts/red-agent/juice_shop-96a790db-b00e-4169-9810-d352fd805de2-homepage.png",
+        "captured_at": "2026-04-21T10:16:58.331372Z",
+        "summary": "Loaded homepage and captured screenshot at /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/juice_shop-96a790db-b00e-4169-9810-d352fd805de2-homepage.png."
+      },
+      {
+        "screenshot_id": "f5ef8f2c-72be-44c6-9e7a-681756bbc275",
+        "scenario_id": "browser_login_navigation",
+        "scenario_name": "Browser Login Navigation",
+        "filename": "juice_shop-96a790db-b00e-4169-9810-d352fd805de2-login-navigation.png",
+        "artifact_path": "/Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/juice_shop-96a790db-b00e-4169-9810-d352fd805de2-login-navigation.png",
+        "artifact_url": "/artifacts/red-agent/juice_shop-96a790db-b00e-4169-9810-d352fd805de2-login-navigation.png",
+        "captured_at": "2026-04-21T10:17:02.442486Z",
+        "summary": "Opened login/navigation view and captured screenshot at /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/juice_shop-96a790db-b00e-4169-9810-d352fd805de2-login-navigation.png."
+      },
+      {
+        "screenshot_id": "6b520956-dbb5-4fcd-8b11-54ffcb0ab398",
+        "scenario_id": "browser_login_bruteforce",
+        "scenario_name": "Browser Login Brute-Force",
+        "filename": "juice_shop-96a790db-b00e-4169-9810-d352fd805de2-login-bruteforce.png",
+        "artifact_path": "/Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/juice_shop-96a790db-b00e-4169-9810-d352fd805de2-login-bruteforce.png",
+        "artifact_url": "/artifacts/red-agent/juice_shop-96a790db-b00e-4169-9810-d352fd805de2-login-bruteforce.png",
+        "captured_at": "2026-04-21T10:17:09.207692Z",
+        "summary": "Attempted a bounded browser login brute-force sequence and captured screenshot at /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/juice_shop-96a790db-b00e-4169-9810-d352fd805de2-login-bruteforce.png."
+      }
+    ],
+    "vulnerabilities": [],
+    "metadata": {
+      "planner_name": "ollama",
+      "planner_rationale": "The ordered scenarios start with a smoke test to verify basic functionality, then proceed to navigation to identify login areas, and finally attempt a bounded brute-force if login is available. This sequence ensures a balanced approach by first confirming the target is accessible, then exploring authentication paths methodically without overwhelming the system.",
+      "run_id": "96a790db-b00e-4169-9810-d352fd805de2",
+      "emitted_events_count": 3,
+      "latest_artifact_path": "/Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/juice_shop-96a790db-b00e-4169-9810-d352fd805de2-login-bruteforce.png",
+      "latest_artifact_url": "/artifacts/red-agent/juice_shop-96a790db-b00e-4169-9810-d352fd805de2-login-bruteforce.png",
+      "remaining_time_budget_seconds": 80
+    }
+  },
+  {
+    "session_id": "cc730c82-a426-4742-83b8-7233f2a67fb4",
+    "started_at": "2026-04-21T10:14:57.626205Z",
+    "ended_at": "2026-04-21T10:15:13.154698Z",
+    "target_app_id": "0726020f-a551-4c63-9641-75534f15b819",
+    "target_name": "test",
+    "target_url": "http://localhost:8080",
+    "status": "completed",
+    "vulnerability_count": 0,
+    "screenshot_count": 0,
+    "is_latest": false,
+    "summary": "Red agent completed the planned techniques.",
+    "selected_scenarios": [
+      "browser_homepage_smoke",
+      "browser_login_navigation",
+      "browser_login_bruteforce"
+    ],
+    "selected_model_id": "deepseek_r1_8b",
+    "selected_model_label": "DeepSeek R1 8B",
+    "completed_techniques": [
+      "browser_homepage_smoke",
+      "browser_login_navigation",
+      "browser_login_bruteforce"
+    ],
+    "logs": [
+      {
+        "timestamp": "2026-04-21T10:14:57.626360Z",
+        "level": "info",
+        "message": "Red agent initialization started."
+      },
+      {
+        "timestamp": "2026-04-21T10:14:57.626525Z",
+        "level": "info",
+        "message": "Attached to run cc730c82-a426-4742-83b8-7233f2a67fb4."
+      },
+      {
+        "timestamp": "2026-04-21T10:14:57.626600Z",
+        "level": "info",
+        "message": "Validated managed target: test."
+      },
+      {
+        "timestamp": "2026-04-21T10:14:57.626668Z",
+        "level": "info",
+        "message": "Planning backend selected: ollama via DeepSeek R1 8B."
+      },
+      {
+        "timestamp": "2026-04-21T10:14:57.626780Z",
+        "level": "info",
+        "message": "Planning rationale: The ordered scenarios start with a smoke test to verify basic functionality, then proceed to navigation to identify login areas, and finally attempt a bounded brute-force if available, ensuring a balanced approach without exceeding attack depth."
+      },
+      {
+        "timestamp": "2026-04-21T10:14:57.626844Z",
+        "level": "info",
+        "message": "Planned techniques: browser_homepage_smoke, browser_login_navigation, browser_login_bruteforce."
+      },
+      {
+        "timestamp": "2026-04-21T10:14:57.632860Z",
+        "level": "info",
+        "message": "Selected target URL: http://localhost:8080"
+      },
+      {
+        "timestamp": "2026-04-21T10:14:57.639671Z",
+        "level": "info",
+        "message": "Running browser scenario: Browser Homepage Smoke."
+      },
+      {
+        "timestamp": "2026-04-21T10:15:00.699179Z",
+        "level": "info",
+        "message": "Loaded homepage and captured screenshot at /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-cc730c82-a426-4742-83b8-7233f2a67fb4-homepage.png."
+      },
+      {
+        "timestamp": "2026-04-21T10:15:00.699382Z",
+        "level": "info",
+        "message": "Playwright screenshot saved to /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-cc730c82-a426-4742-83b8-7233f2a67fb4-homepage.png."
+      },
+      {
+        "timestamp": "2026-04-21T10:15:00.810675Z",
+        "level": "info",
+        "message": "Running browser scenario: Browser Login Navigation."
+      },
+      {
+        "timestamp": "2026-04-21T10:15:03.440820Z",
+        "level": "info",
+        "message": "Opened login/navigation view and captured screenshot at /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-cc730c82-a426-4742-83b8-7233f2a67fb4-login-navigation.png."
+      },
+      {
+        "timestamp": "2026-04-21T10:15:03.441046Z",
+        "level": "info",
+        "message": "Playwright screenshot saved to /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-cc730c82-a426-4742-83b8-7233f2a67fb4-login-navigation.png."
+      },
+      {
+        "timestamp": "2026-04-21T10:15:03.568070Z",
+        "level": "info",
+        "message": "Running browser scenario: Browser Login Brute-Force."
+      },
+      {
+        "timestamp": "2026-04-21T10:15:12.960928Z",
+        "level": "info",
+        "message": "Attempted a bounded browser login brute-force sequence and captured screenshot at /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-cc730c82-a426-4742-83b8-7233f2a67fb4-login-bruteforce.png."
+      },
+      {
+        "timestamp": "2026-04-21T10:15:12.961124Z",
+        "level": "info",
+        "message": "Playwright screenshot saved to /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-cc730c82-a426-4742-83b8-7233f2a67fb4-login-bruteforce.png."
+      },
+      {
+        "timestamp": "2026-04-21T10:15:13.105759Z",
+        "level": "warning",
+        "message": "Confirmed vulnerability signal observed during Browser Login Brute-Force."
+      },
+      {
+        "timestamp": "2026-04-21T10:15:13.154755Z",
+        "level": "info",
+        "message": "Attack run finished."
+      }
+    ],
+    "screenshots": [
+      {
+        "screenshot_id": "97e02c2c-3a72-4b4d-8fbb-e39a50bd2875",
+        "scenario_id": "browser_homepage_smoke",
+        "scenario_name": "Browser Homepage Smoke",
+        "filename": "dvwa-cc730c82-a426-4742-83b8-7233f2a67fb4-homepage.png",
+        "artifact_path": "/Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-cc730c82-a426-4742-83b8-7233f2a67fb4-homepage.png",
+        "artifact_url": "/artifacts/red-agent/dvwa-cc730c82-a426-4742-83b8-7233f2a67fb4-homepage.png",
+        "captured_at": "2026-04-21T10:15:00.699832Z",
+        "summary": "Loaded homepage and captured screenshot at /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-cc730c82-a426-4742-83b8-7233f2a67fb4-homepage.png."
+      },
+      {
+        "screenshot_id": "10b778c7-a02b-4937-9efc-3e40e3fc31e7",
+        "scenario_id": "browser_login_navigation",
+        "scenario_name": "Browser Login Navigation",
+        "filename": "dvwa-cc730c82-a426-4742-83b8-7233f2a67fb4-login-navigation.png",
+        "artifact_path": "/Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-cc730c82-a426-4742-83b8-7233f2a67fb4-login-navigation.png",
+        "artifact_url": "/artifacts/red-agent/dvwa-cc730c82-a426-4742-83b8-7233f2a67fb4-login-navigation.png",
+        "captured_at": "2026-04-21T10:15:03.441839Z",
+        "summary": "Opened login/navigation view and captured screenshot at /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-cc730c82-a426-4742-83b8-7233f2a67fb4-login-navigation.png."
+      },
+      {
+        "screenshot_id": "656e216a-257a-4237-84bd-18410f16ec6d",
+        "scenario_id": "browser_login_bruteforce",
+        "scenario_name": "Browser Login Brute-Force",
+        "filename": "dvwa-cc730c82-a426-4742-83b8-7233f2a67fb4-login-bruteforce.png",
+        "artifact_path": "/Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-cc730c82-a426-4742-83b8-7233f2a67fb4-login-bruteforce.png",
+        "artifact_url": "/artifacts/red-agent/dvwa-cc730c82-a426-4742-83b8-7233f2a67fb4-login-bruteforce.png",
+        "captured_at": "2026-04-21T10:15:12.961532Z",
+        "summary": "Attempted a bounded browser login brute-force sequence and captured screenshot at /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-cc730c82-a426-4742-83b8-7233f2a67fb4-login-bruteforce.png."
+      }
+    ],
+    "vulnerabilities": [
+      {
+        "vulnerability_id": "b13e4586-4eaa-4204-9ff3-62578698495c",
+        "scenario_id": "browser_login_bruteforce",
+        "type": "credential_attack",
+        "title": "Login brute-force vulnerability signal",
+        "severity": "high",
+        "location": "http://localhost:8080/index.php",
+        "evidence": "Attempted a bounded browser login brute-force sequence and captured screenshot at /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-cc730c82-a426-4742-83b8-7233f2a67fb4-login-bruteforce.png.",
+        "discovered_at": "2026-04-21T10:15:13.105726Z"
+      }
+    ],
+    "metadata": {
+      "planner_name": "ollama",
+      "planner_rationale": "The ordered scenarios start with a smoke test to verify basic functionality, then proceed to navigation to identify login areas, and finally attempt a bounded brute-force if available, ensuring a balanced approach without exceeding attack depth.",
+      "run_id": "cc730c82-a426-4742-83b8-7233f2a67fb4",
+      "emitted_events_count": 3,
+      "latest_artifact_path": "/Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-cc730c82-a426-4742-83b8-7233f2a67fb4-login-bruteforce.png",
+      "latest_artifact_url": "/artifacts/red-agent/dvwa-cc730c82-a426-4742-83b8-7233f2a67fb4-login-bruteforce.png",
+      "remaining_time_budget_seconds": 123
+    }
+  },
+  {
+    "session_id": "2d84cf2d-104d-45b9-8bfc-58a9f62bc059",
+    "started_at": "2026-04-21T10:10:07.015776Z",
+    "ended_at": "2026-04-21T10:10:12.763085Z",
+    "target_app_id": "0726020f-a551-4c63-9641-75534f15b819",
+    "target_name": "test",
+    "target_url": "http://localhost:8080",
+    "status": "completed",
+    "vulnerability_count": 0,
+    "screenshot_count": 0,
+    "is_latest": false,
+    "summary": "Red agent completed the planned techniques.",
+    "selected_scenarios": [
+      "browser_homepage_smoke",
+      "browser_login_navigation"
+    ],
+    "selected_model_id": "deepseek_r1_8b",
+    "selected_model_label": "DeepSeek R1 8B",
+    "completed_techniques": [
+      "browser_homepage_smoke",
+      "browser_login_navigation"
+    ],
+    "logs": [
+      {
+        "timestamp": "2026-04-21T10:10:07.015931Z",
+        "level": "info",
+        "message": "Red agent initialization started."
+      },
+      {
+        "timestamp": "2026-04-21T10:10:07.016090Z",
+        "level": "info",
+        "message": "Attached to run 2d84cf2d-104d-45b9-8bfc-58a9f62bc059."
+      },
+      {
+        "timestamp": "2026-04-21T10:10:07.016172Z",
+        "level": "info",
+        "message": "Validated managed target: test."
+      },
+      {
+        "timestamp": "2026-04-21T10:10:07.016244Z",
+        "level": "info",
+        "message": "Planning backend selected: ollama via DeepSeek R1 8B."
+      },
+      {
+        "timestamp": "2026-04-21T10:10:07.016314Z",
+        "level": "info",
+        "message": "Planning rationale: The plan begins with browser_homepage_smoke to establish a baseline by capturing a screenshot of the homepage. This initial step ensures the target is accessible and provides context for the subsequent browser_login_navigation scenario, which explores navigation to login pages. The order prioritizes a simple smoke test before moving to more complex navigation testing, maintaining a quick attack depth within the 180-second duration."
+      },
+      {
+        "timestamp": "2026-04-21T10:10:07.016384Z",
+        "level": "info",
+        "message": "Planned techniques: browser_homepage_smoke, browser_login_navigation."
+      },
+      {
+        "timestamp": "2026-04-21T10:10:07.019919Z",
+        "level": "info",
+        "message": "Selected target URL: http://localhost:8080"
+      },
+      {
+        "timestamp": "2026-04-21T10:10:07.026091Z",
+        "level": "info",
+        "message": "Running browser scenario: Browser Homepage Smoke."
+      },
+      {
+        "timestamp": "2026-04-21T10:10:09.649723Z",
+        "level": "info",
+        "message": "Loaded homepage and captured screenshot at /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-2d84cf2d-104d-45b9-8bfc-58a9f62bc059-homepage.png."
+      },
+      {
+        "timestamp": "2026-04-21T10:10:09.649948Z",
+        "level": "info",
+        "message": "Playwright screenshot saved to /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-2d84cf2d-104d-45b9-8bfc-58a9f62bc059-homepage.png."
+      },
+      {
+        "timestamp": "2026-04-21T10:10:09.751933Z",
+        "level": "info",
+        "message": "Running browser scenario: Browser Login Navigation."
+      },
+      {
+        "timestamp": "2026-04-21T10:10:12.653067Z",
+        "level": "info",
+        "message": "Opened login/navigation view and captured screenshot at /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-2d84cf2d-104d-45b9-8bfc-58a9f62bc059-login-navigation.png."
+      },
+      {
+        "timestamp": "2026-04-21T10:10:12.653226Z",
+        "level": "info",
+        "message": "Playwright screenshot saved to /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-2d84cf2d-104d-45b9-8bfc-58a9f62bc059-login-navigation.png."
+      },
+      {
+        "timestamp": "2026-04-21T10:10:12.763145Z",
+        "level": "info",
+        "message": "Attack run finished."
+      }
+    ],
+    "screenshots": [
+      {
+        "screenshot_id": "4cb090f3-1aab-4212-81fe-a1d16018c9c5",
+        "scenario_id": "browser_homepage_smoke",
+        "scenario_name": "Browser Homepage Smoke",
+        "filename": "dvwa-2d84cf2d-104d-45b9-8bfc-58a9f62bc059-homepage.png",
+        "artifact_path": "/Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-2d84cf2d-104d-45b9-8bfc-58a9f62bc059-homepage.png",
+        "artifact_url": "/artifacts/red-agent/dvwa-2d84cf2d-104d-45b9-8bfc-58a9f62bc059-homepage.png",
+        "captured_at": "2026-04-21T10:10:09.650936Z",
+        "summary": "Loaded homepage and captured screenshot at /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-2d84cf2d-104d-45b9-8bfc-58a9f62bc059-homepage.png."
+      },
+      {
+        "screenshot_id": "6cd6b7d7-3a4b-49d8-a776-94bba88ce336",
+        "scenario_id": "browser_login_navigation",
+        "scenario_name": "Browser Login Navigation",
+        "filename": "dvwa-2d84cf2d-104d-45b9-8bfc-58a9f62bc059-login-navigation.png",
+        "artifact_path": "/Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-2d84cf2d-104d-45b9-8bfc-58a9f62bc059-login-navigation.png",
+        "artifact_url": "/artifacts/red-agent/dvwa-2d84cf2d-104d-45b9-8bfc-58a9f62bc059-login-navigation.png",
+        "captured_at": "2026-04-21T10:10:12.654867Z",
+        "summary": "Opened login/navigation view and captured screenshot at /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-2d84cf2d-104d-45b9-8bfc-58a9f62bc059-login-navigation.png."
+      }
+    ],
+    "vulnerabilities": [],
+    "metadata": {
+      "planner_name": "ollama",
+      "planner_rationale": "The plan begins with browser_homepage_smoke to establish a baseline by capturing a screenshot of the homepage. This initial step ensures the target is accessible and provides context for the subsequent browser_login_navigation scenario, which explores navigation to login pages. The order prioritizes a simple smoke test before moving to more complex navigation testing, maintaining a quick attack depth within the 180-second duration.",
+      "run_id": "2d84cf2d-104d-45b9-8bfc-58a9f62bc059",
+      "emitted_events_count": 2,
+      "latest_artifact_path": "/Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-2d84cf2d-104d-45b9-8bfc-58a9f62bc059-login-navigation.png",
+      "latest_artifact_url": "/artifacts/red-agent/dvwa-2d84cf2d-104d-45b9-8bfc-58a9f62bc059-login-navigation.png",
+      "remaining_time_budget_seconds": 134
+    }
+  },
+  {
+    "session_id": "e496bacd-862a-47c2-a6af-981f2dc5078c",
+    "started_at": "2026-04-21T10:04:59.580721Z",
+    "ended_at": "2026-04-21T10:05:16.871893Z",
+    "target_app_id": "0726020f-a551-4c63-9641-75534f15b819",
+    "target_name": "test",
+    "target_url": "http://localhost:8080",
+    "status": "completed",
+    "vulnerability_count": 0,
+    "screenshot_count": 0,
+    "is_latest": false,
+    "summary": "Red agent completed the planned techniques.",
+    "selected_scenarios": [
+      "browser_homepage_smoke",
+      "browser_login_navigation",
+      "browser_login_bruteforce"
+    ],
+    "selected_model_id": "deepseek_r1_8b",
+    "selected_model_label": "DeepSeek R1 8B",
+    "completed_techniques": [
+      "browser_homepage_smoke",
+      "browser_login_navigation",
+      "browser_login_bruteforce"
+    ],
+    "logs": [
+      {
+        "timestamp": "2026-04-21T10:04:59.580875Z",
+        "level": "info",
+        "message": "Red agent initialization started."
+      },
+      {
+        "timestamp": "2026-04-21T10:04:59.581074Z",
+        "level": "info",
+        "message": "Attached to run e496bacd-862a-47c2-a6af-981f2dc5078c."
+      },
+      {
+        "timestamp": "2026-04-21T10:04:59.581169Z",
+        "level": "info",
+        "message": "Validated managed target: test."
+      },
+      {
+        "timestamp": "2026-04-21T10:04:59.581254Z",
+        "level": "info",
+        "message": "Planning backend selected: ollama via DeepSeek R1 8B."
+      },
+      {
+        "timestamp": "2026-04-21T10:04:59.581328Z",
+        "level": "info",
+        "message": "Planning rationale: The ordered scenarios follow a logical progression from basic smoke testing to navigation and then to more targeted actions, ensuring a balanced approach without exceeding the allowed scenarios."
+      },
+      {
+        "timestamp": "2026-04-21T10:04:59.581400Z",
+        "level": "info",
+        "message": "Planned techniques: browser_homepage_smoke, browser_login_navigation, browser_login_bruteforce."
+      },
+      {
+        "timestamp": "2026-04-21T10:04:59.584910Z",
+        "level": "info",
+        "message": "Selected target URL: http://localhost:8080"
+      },
+      {
+        "timestamp": "2026-04-21T10:04:59.591585Z",
+        "level": "info",
+        "message": "Running browser scenario: Browser Homepage Smoke."
+      },
+      {
+        "timestamp": "2026-04-21T10:05:03.312962Z",
+        "level": "info",
+        "message": "Loaded homepage and captured screenshot at /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-e496bacd-862a-47c2-a6af-981f2dc5078c-homepage.png."
+      },
+      {
+        "timestamp": "2026-04-21T10:05:03.313254Z",
+        "level": "info",
+        "message": "Playwright screenshot saved to /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-e496bacd-862a-47c2-a6af-981f2dc5078c-homepage.png."
+      },
+      {
+        "timestamp": "2026-04-21T10:05:03.442523Z",
+        "level": "info",
+        "message": "Running browser scenario: Browser Login Navigation."
+      },
+      {
+        "timestamp": "2026-04-21T10:05:06.575181Z",
+        "level": "info",
+        "message": "Opened login/navigation view and captured screenshot at /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-e496bacd-862a-47c2-a6af-981f2dc5078c-login-navigation.png."
+      },
+      {
+        "timestamp": "2026-04-21T10:05:06.575379Z",
+        "level": "info",
+        "message": "Playwright screenshot saved to /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-e496bacd-862a-47c2-a6af-981f2dc5078c-login-navigation.png."
+      },
+      {
+        "timestamp": "2026-04-21T10:05:06.692955Z",
+        "level": "info",
+        "message": "Running browser scenario: Browser Login Brute-Force."
+      },
+      {
+        "timestamp": "2026-04-21T10:05:16.609641Z",
+        "level": "info",
+        "message": "Attempted a bounded browser login brute-force sequence and captured screenshot at /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-e496bacd-862a-47c2-a6af-981f2dc5078c-login-bruteforce.png."
+      },
+      {
+        "timestamp": "2026-04-21T10:05:16.609832Z",
+        "level": "info",
+        "message": "Playwright screenshot saved to /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-e496bacd-862a-47c2-a6af-981f2dc5078c-login-bruteforce.png."
+      },
+      {
+        "timestamp": "2026-04-21T10:05:16.715990Z",
+        "level": "warning",
+        "message": "Confirmed vulnerability signal observed during Browser Login Brute-Force."
+      },
+      {
+        "timestamp": "2026-04-21T10:05:16.872029Z",
+        "level": "info",
+        "message": "Attack run finished."
+      }
+    ],
+    "screenshots": [
+      {
+        "screenshot_id": "368a432f-59cf-4732-bfcb-8a5cdaed1bd8",
+        "scenario_id": "browser_homepage_smoke",
+        "scenario_name": "Browser Homepage Smoke",
+        "filename": "dvwa-e496bacd-862a-47c2-a6af-981f2dc5078c-homepage.png",
+        "artifact_path": "/Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-e496bacd-862a-47c2-a6af-981f2dc5078c-homepage.png",
+        "artifact_url": "/artifacts/red-agent/dvwa-e496bacd-862a-47c2-a6af-981f2dc5078c-homepage.png",
+        "captured_at": "2026-04-21T10:05:03.353675Z",
+        "summary": "Loaded homepage and captured screenshot at /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-e496bacd-862a-47c2-a6af-981f2dc5078c-homepage.png."
+      },
+      {
+        "screenshot_id": "b9405cbd-55cb-4672-8a7a-8dca6ef921b0",
+        "scenario_id": "browser_login_navigation",
+        "scenario_name": "Browser Login Navigation",
+        "filename": "dvwa-e496bacd-862a-47c2-a6af-981f2dc5078c-login-navigation.png",
+        "artifact_path": "/Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-e496bacd-862a-47c2-a6af-981f2dc5078c-login-navigation.png",
+        "artifact_url": "/artifacts/red-agent/dvwa-e496bacd-862a-47c2-a6af-981f2dc5078c-login-navigation.png",
+        "captured_at": "2026-04-21T10:05:06.575741Z",
+        "summary": "Opened login/navigation view and captured screenshot at /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-e496bacd-862a-47c2-a6af-981f2dc5078c-login-navigation.png."
+      },
+      {
+        "screenshot_id": "67cdbcdd-b438-4e86-9b98-8730c3d2ca20",
+        "scenario_id": "browser_login_bruteforce",
+        "scenario_name": "Browser Login Brute-Force",
+        "filename": "dvwa-e496bacd-862a-47c2-a6af-981f2dc5078c-login-bruteforce.png",
+        "artifact_path": "/Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-e496bacd-862a-47c2-a6af-981f2dc5078c-login-bruteforce.png",
+        "artifact_url": "/artifacts/red-agent/dvwa-e496bacd-862a-47c2-a6af-981f2dc5078c-login-bruteforce.png",
+        "captured_at": "2026-04-21T10:05:16.610463Z",
+        "summary": "Attempted a bounded browser login brute-force sequence and captured screenshot at /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-e496bacd-862a-47c2-a6af-981f2dc5078c-login-bruteforce.png."
+      }
+    ],
+    "vulnerabilities": [
+      {
+        "vulnerability_id": "0b9fd4cd-faf3-41c4-9f8c-bc6a27fea8fe",
+        "scenario_id": "browser_login_bruteforce",
+        "type": "credential_attack",
+        "title": "Login brute-force vulnerability signal",
+        "severity": "high",
+        "location": "http://localhost:8080/index.php",
+        "evidence": "Attempted a bounded browser login brute-force sequence and captured screenshot at /Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-e496bacd-862a-47c2-a6af-981f2dc5078c-login-bruteforce.png.",
+        "discovered_at": "2026-04-21T10:05:16.715949Z"
+      }
+    ],
+    "metadata": {
+      "planner_name": "ollama",
+      "planner_rationale": "The ordered scenarios follow a logical progression from basic smoke testing to navigation and then to more targeted actions, ensuring a balanced approach without exceeding the allowed scenarios.",
+      "run_id": "e496bacd-862a-47c2-a6af-981f2dc5078c",
+      "emitted_events_count": 3,
+      "latest_artifact_path": "/Users/davidbarac/CyberBoxDefense/CyberBoxDefense/apps/frontend/test-results/red-agent/dvwa-e496bacd-862a-47c2-a6af-981f2dc5078c-login-bruteforce.png",
+      "latest_artifact_url": "/artifacts/red-agent/dvwa-e496bacd-862a-47c2-a6af-981f2dc5078c-login-bruteforce.png",
+      "remaining_time_budget_seconds": 549
+    }
+  }
+]

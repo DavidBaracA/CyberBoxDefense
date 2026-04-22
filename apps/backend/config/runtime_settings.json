@@ -1,0 +1,7 @@
+{
+  "BLUE_AGENT_REASONER": "auto",
+  "RED_AGENT_REASONER": "auto",
+  "OLLAMA_BASE_URL": "http://localhost:11434",
+  "OLLAMA_TIMEOUT_SECONDS": 120,
+  "OLLAMA_THINK": false
+}
