@@ -65,6 +65,73 @@ const initialState = {
   lastUpdated: null,
 };
 
+function formatDebugPayload(payload) {
+  try {
+    return JSON.stringify(payload, null, 2);
+  } catch {
+    return String(payload);
+  }
+}
+
+function extractOllamaDebugEntry(payload) {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  if (typeof payload.type === "string" && payload.raw_response) {
+    return {
+      level: payload.level || "info",
+      type: payload.type,
+      raw_response: String(payload.raw_response),
+      timestamp: payload.timestamp,
+    };
+  }
+
+  const message = typeof payload.message === "string" ? payload.message : "";
+  const rawPrefix = "Planning raw model response:";
+  const visionRawPrefix = "Vision raw model response:";
+  const errorPrefix = "Planning model error:";
+  const fallbackPrefix = "Planning model fallback:";
+
+  if (message.startsWith(visionRawPrefix)) {
+    return {
+      level: payload.level || "info",
+      type: "vision_raw_response",
+      raw_response: message.slice(visionRawPrefix.length).trim(),
+      timestamp: payload.timestamp,
+    };
+  }
+
+  if (message.startsWith(rawPrefix)) {
+    return {
+      level: payload.level || "info",
+      type: "raw_response",
+      raw_response: message.slice(rawPrefix.length).trim(),
+      timestamp: payload.timestamp,
+    };
+  }
+
+  if (message.startsWith(errorPrefix)) {
+    return {
+      level: payload.level || "warning",
+      type: "error",
+      error: message.slice(errorPrefix.length).trim(),
+      timestamp: payload.timestamp,
+    };
+  }
+
+  if (message.startsWith(fallbackPrefix)) {
+    return {
+      level: payload.level || "warning",
+      type: "fallback",
+      fallback: message.slice(fallbackPrefix.length).trim(),
+      timestamp: payload.timestamp,
+    };
+  }
+
+  return null;
+}
+
 export default function Dashboard() {
   const [state, setState] = useState(initialState);
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
@@ -85,9 +152,32 @@ export default function Dashboard() {
   const [isStoppingRedAgent, setIsStoppingRedAgent] = useState(false);
   const [redAgentStreamState, setRedAgentStreamState] = useState("connecting");
   const [runFormConfig, setRunFormConfig] = useState(null);
+  const [agentDebugEntries, setAgentDebugEntries] = useState([]);
+
+  function appendAgentDebug(source, label, payload) {
+    const filteredPayload = extractOllamaDebugEntry(payload);
+    if (!filteredPayload) {
+      return;
+    }
+
+    const entry = {
+      entryId: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      timestamp: new Date().toISOString(),
+      source,
+      label,
+      payload: formatDebugPayload(filteredPayload),
+    };
+    setAgentDebugEntries((current) => [entry, ...current].slice(0, 120));
+  }
 
   async function refresh() {
     const snapshot = await getDashboardSnapshot();
+    appendAgentDebug("api", "getDashboardSnapshot", {
+      redAgentStatus: snapshot.redAgentStatus || {},
+      blueAgentStatus: snapshot.blueAgentStatus || {},
+      runningManagedApps: safeArray(snapshot.vulnerableApps).filter((app) => app?.status === "running"),
+      errors: snapshot.errors || [],
+    });
     setState((current) => ({
       ...snapshot,
       telemetry: safeArray(snapshot.telemetry),
@@ -114,6 +204,8 @@ export default function Dashboard() {
         await refresh();
         const config = await getRunFormConfig();
         const blueModels = await getBlueAgentModels();
+        appendAgentDebug("api", "getRunFormConfig", config);
+        appendAgentDebug("api", "getBlueAgentModels", blueModels);
         if (isMounted) {
           setRunFormConfig(config);
           setBlueModelOptions(blueModels);
@@ -124,6 +216,7 @@ export default function Dashboard() {
           }
         }
       } catch (error) {
+        appendAgentDebug("api-error", "initial refresh", { message: error.message });
         if (!isMounted) {
           return;
         }
@@ -157,6 +250,7 @@ export default function Dashboard() {
       socket.onopen = () => {
         if (!isClosed) {
           setRedAgentStreamState("connected");
+          appendAgentDebug("ws-red", "socket open", { streamState: "connected" });
         }
       };
 
@@ -169,6 +263,7 @@ export default function Dashboard() {
         }
 
         if (payload?.type === "reset") {
+          appendAgentDebug("ws-red", "reset", payload);
           setState((current) => ({
             ...current,
             redAgentLogs: [],
@@ -177,6 +272,7 @@ export default function Dashboard() {
         }
 
         if (payload?.type === "history") {
+          appendAgentDebug("ws-red", "history", { logCount: safeArray(payload.logs).length });
           setState((current) => ({
             ...current,
             redAgentLogs: safeArray(payload.logs),
@@ -185,6 +281,7 @@ export default function Dashboard() {
         }
 
         if (payload?.type === "log" && payload.entry) {
+          appendAgentDebug("ws-red", "log", payload.entry);
           setState((current) => ({
             ...current,
             redAgentLogs: [...safeArray(current.redAgentLogs), payload.entry].slice(-400),
@@ -192,7 +289,13 @@ export default function Dashboard() {
           return;
         }
 
+        if (payload?.type === "debug" && payload.entry) {
+          appendAgentDebug("ws-red", "debug", payload.entry);
+          return;
+        }
+
         if (payload?.type === "status" && payload.state) {
+          appendAgentDebug("ws-red", "status", payload.state);
           setState((current) => ({
             ...current,
             redAgentStatus: payload.state,
@@ -203,6 +306,7 @@ export default function Dashboard() {
       socket.onerror = () => {
         if (!isClosed) {
           setRedAgentStreamState("disconnected");
+          appendAgentDebug("ws-red", "socket error", { streamState: "disconnected" });
         }
       };
 
@@ -211,6 +315,7 @@ export default function Dashboard() {
           return;
         }
         setRedAgentStreamState("disconnected");
+        appendAgentDebug("ws-red", "socket close", { streamState: "disconnected" });
         retryId = window.setTimeout(connect, 3000);
       };
     }
@@ -245,6 +350,7 @@ export default function Dashboard() {
       socket.onopen = () => {
         if (!isClosed) {
           setBlueAgentStreamState("connected");
+          appendAgentDebug("ws-blue", "socket open", { streamState: "connected" });
         }
       };
 
@@ -257,6 +363,7 @@ export default function Dashboard() {
         }
 
         if (payload?.type === "reset") {
+          appendAgentDebug("ws-blue", "reset", payload);
           setState((current) => ({
             ...current,
             blueAgentLogs: [],
@@ -265,6 +372,7 @@ export default function Dashboard() {
         }
 
         if (payload?.type === "history") {
+          appendAgentDebug("ws-blue", "history", { logCount: safeArray(payload.logs).length });
           setState((current) => ({
             ...current,
             blueAgentLogs: safeArray(payload.logs),
@@ -273,6 +381,7 @@ export default function Dashboard() {
         }
 
         if (payload?.type === "log" && payload.entry) {
+          appendAgentDebug("ws-blue", "log", payload.entry);
           setState((current) => ({
             ...current,
             blueAgentLogs: [...safeArray(current.blueAgentLogs), payload.entry].slice(-400),
@@ -281,6 +390,7 @@ export default function Dashboard() {
         }
 
         if (payload?.type === "status" && payload.state) {
+          appendAgentDebug("ws-blue", "status", payload.state);
           setState((current) => ({
             ...current,
             blueAgentStatus: payload.state,
@@ -291,6 +401,7 @@ export default function Dashboard() {
       socket.onerror = () => {
         if (!isClosed) {
           setBlueAgentStreamState("disconnected");
+          appendAgentDebug("ws-blue", "socket error", { streamState: "disconnected" });
         }
       };
 
@@ -299,6 +410,7 @@ export default function Dashboard() {
           return;
         }
         setBlueAgentStreamState("disconnected");
+        appendAgentDebug("ws-blue", "socket close", { streamState: "disconnected" });
         retryId = window.setTimeout(connect, 3000);
       };
     }
@@ -321,10 +433,12 @@ export default function Dashboard() {
     setIsSubmittingDeploy(true);
     setAppsError("");
     try {
-      await deployVulnerableApp(payload);
+      const response = await deployVulnerableApp(payload);
+      appendAgentDebug("api", "deployVulnerableApp", response);
       setIsDeployModalOpen(false);
       await refresh();
     } catch (error) {
+      appendAgentDebug("api-error", "deployVulnerableApp", { message: error.message, payload });
       setAppsError(error.message);
     } finally {
       setIsSubmittingDeploy(false);
@@ -335,9 +449,11 @@ export default function Dashboard() {
     setIsActingOnApp(true);
     setAppsError("");
     try {
-      await action();
+      const response = await action();
+      appendAgentDebug("api", "vulnerableAppAction", response);
       await refresh();
     } catch (error) {
+      appendAgentDebug("api-error", "vulnerableAppAction", { message: error.message });
       setAppsError(error.message);
     } finally {
       setIsActingOnApp(false);
@@ -348,11 +464,13 @@ export default function Dashboard() {
     setIsStartingBlueAgent(true);
     setBlueAgentError("");
     try {
-      await startBlueAgent({
+      const response = await startBlueAgent({
         model_id: selectedBlueModelId || undefined,
       });
+      appendAgentDebug("api", "startBlueAgent", response);
       await refresh();
     } catch (error) {
+      appendAgentDebug("api-error", "startBlueAgent", { message: error.message });
       setBlueAgentError(error.message);
     } finally {
       setIsStartingBlueAgent(false);
@@ -363,9 +481,11 @@ export default function Dashboard() {
     setIsStoppingBlueAgent(true);
     setBlueAgentError("");
     try {
-      await stopBlueAgent();
+      const response = await stopBlueAgent();
+      appendAgentDebug("api", "stopBlueAgent", response);
       await refresh();
     } catch (error) {
+      appendAgentDebug("api-error", "stopBlueAgent", { message: error.message });
       setBlueAgentError(error.message);
     } finally {
       setIsStoppingBlueAgent(false);
@@ -380,10 +500,16 @@ export default function Dashboard() {
         app_id: payload.target_app_id,
         config: payload.config,
       });
-      await startRun(run.run_id);
+      appendAgentDebug("api", "createRun", run);
+      const startResponse = await startRun(run.run_id);
+      appendAgentDebug("api", "startRun", startResponse);
       setIsExperimentModalOpen(false);
       await refresh();
     } catch (error) {
+      appendAgentDebug("api-error", "startRun flow", {
+        message: error.message,
+        target_app_id: payload.target_app_id,
+      });
       setRedAgentError(error.message);
     } finally {
       setIsStartingRedAgent(false);
@@ -394,9 +520,11 @@ export default function Dashboard() {
     setIsStoppingRedAgent(true);
     setRedAgentError("");
     try {
-      await stopRedAgent();
+      const response = await stopRedAgent();
+      appendAgentDebug("api", "stopRedAgent", response);
       await refresh();
     } catch (error) {
+      appendAgentDebug("api-error", "stopRedAgent", { message: error.message });
       setRedAgentError(error.message);
     } finally {
       setIsStoppingRedAgent(false);
@@ -461,6 +589,7 @@ export default function Dashboard() {
           logs={state.redAgentLogs}
           streamState={redAgentStreamState}
           runningApps={state.vulnerableApps.filter((app) => app?.status === "running")}
+          allApps={state.vulnerableApps}
           isStopping={isStoppingRedAgent}
           error={redAgentError}
           onOpenStart={() => setIsExperimentModalOpen(true)}
@@ -482,6 +611,40 @@ export default function Dashboard() {
           onStart={handleStartBlueAgent}
           onStop={handleStopBlueAgent}
         />
+      </section>
+
+      <section className="panel agent-debug-panel">
+        <div className="panel-header panel-header-row">
+          <div>
+            <h2>Agent Debug</h2>
+            <p className="panel-copy">
+              Raw Ollama planner responses and planning errors captured from the Red-agent stream.
+            </p>
+          </div>
+          <button
+            className="ghost-button"
+            type="button"
+            onClick={() => setAgentDebugEntries([])}
+          >
+            Clear Debug Log
+          </button>
+        </div>
+        <div className="agent-debug-console">
+          {agentDebugEntries.length === 0 ? (
+            <div className="empty-state">No Ollama planner debug events captured yet.</div>
+          ) : (
+            agentDebugEntries.map((entry) => (
+              <article key={entry.entryId} className="agent-debug-entry">
+                <div className="agent-debug-meta">
+                  <strong>{entry.label}</strong>
+                  <span>{entry.source}</span>
+                  <span>{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                </div>
+                <pre className="agent-debug-payload">{entry.payload}</pre>
+              </article>
+            ))
+          )}
+        </div>
       </section>
 
       <MetricsPanel metrics={state.metrics} />
@@ -514,6 +677,7 @@ export default function Dashboard() {
         isSubmitting={isStartingRedAgent}
         error={redAgentError}
         runningApps={state.vulnerableApps.filter((app) => app?.status === "running")}
+        allApps={state.vulnerableApps}
         scenarios={state.redAgentScenarios}
         runFormConfig={runFormConfig}
       />

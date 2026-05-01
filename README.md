@@ -51,7 +51,7 @@ Blue must never consume attack ground truth during runtime. In this scaffold, th
 - In-memory storage for fast iteration
 - Demo data seeding on backend startup
 - Very simple heuristic Blue placeholder
-- Very simple Red placeholder that triggers the target and records synthetic results
+- Red agent planning that uses managed-target page analysis plus optional local vision reasoning
 - Metrics are approximate first-pass metrics for demo and contract validation
 
 ## Quick Start
@@ -114,7 +114,7 @@ pip install -r requirements.txt
 python app.py
 ```
 
-Red agent placeholder:
+Red agent scaffolding:
 
 ```bash
 PYTHONPATH=shared/python python -m agents.red_agent.main
@@ -178,6 +178,80 @@ That screenshot is captured after the managed target homepage loads successfully
 - If no managed target is running, the test fails with a clear message.
 - If multiple managed targets are running, the test requires `CYBERBOX_TARGET_APP_ID`.
 - TODO: a future iteration can expose a lightweight backend-triggered smoke-test endpoint or Playwright MCP-backed browser operator adapter.
+
+## Vision-Assisted Red Planning
+
+The Red agent now uses generic vulnerability scenarios rather than app-specific
+flows. A bounded page-analysis layer inspects the currently selected
+platform-managed local target and recommends applicable scenarios such as:
+
+- `brute_force_login`
+- `sql_injection_probe`
+- `reflected_xss_probe`
+- `file_upload_probe`
+- `open_redirect_probe`
+
+The analyzer combines:
+
+- Playwright DOM and accessibility-style extraction
+- a screenshot artifact saved under `apps/frontend/test-results/red-agent`
+- optional Ollama-backed vision reasoning for page-type understanding
+
+Red-only analysis metadata stays in the Red/operator session-review layers and
+is not exposed to the Blue runtime stream.
+
+### Runtime settings
+
+Backend runtime settings live in `apps/backend/config/runtime_settings.json`.
+The Red planner and page analyzer currently support:
+
+- `RED_AGENT_REASONER`: `auto`, `ollama`, or `heuristic`
+- `RED_AGENT_VISION_REASONER`: `auto`, `heuristic`, or `disabled`
+- `RED_AGENT_VISION_MODEL`: defaults to `gemma3:4b`
+- `OLLAMA_BASE_URL`
+- `OLLAMA_TIMEOUT_SECONDS`
+- `OLLAMA_THINK`
+
+If Ollama or the vision-capable model is unavailable, the page analyzer falls
+back to DOM heuristics only.
+
+### Planner artifacts
+
+When the Red agent starts a run, it performs a bounded analysis of the selected
+managed target homepage and stores:
+
+- analyzed page URL
+- screenshot path and artifact URL
+- page type classification
+- recommended scenarios with confidence scores
+- planner rationale and supporting signals
+
+These artifacts are persisted in `data/red_agent_sessions.json` and shown in the
+session review UI.
+
+### Local testing
+
+Start the backend and deploy at least one vulnerable app through the platform.
+Then create and start an experiment run from the UI. The Red-agent session view
+will show:
+
+- page analysis results
+- planner-selected generic scenarios
+- screenshot evidence for the analyzed page and later scenario steps
+
+For a lower-level manual check of the analyzer runner:
+
+```bash
+cd apps/frontend
+npx playwright install chromium
+CYBERBOX_TARGET_URL=http://localhost:8081 \
+CYBERBOX_TARGET_TEMPLATE=dvwa \
+CYBERBOX_RUN_ID=manual \
+node tests/e2e/helpers/analyzeManagedPage.mjs
+```
+
+This manual path is still limited to localhost URLs and is intended only for
+repo-local debugging of the analyzer helper.
 
 ## Demo Flow
 

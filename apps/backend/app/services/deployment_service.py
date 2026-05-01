@@ -101,9 +101,27 @@ class SingleContainerTemplateHandler(TemplateHandler):
             status_notes=self.template.status_notes,
         )
 
+    def _run_new_container(self, app: VulnerableAppDetail) -> Optional[str]:
+        internal_port = self.template.container_ports[0]
+        result = self.service._run_docker_command(
+            [
+                "run",
+                "-d",
+                "--name",
+                app.container_name,
+                "-p",
+                f"{app.port}:{internal_port}",
+                app.image_name or self.template.image_name,
+            ]
+        )
+        if result.returncode != 0:
+            detail = result.stderr.strip() or result.stdout.strip() or "Unknown Docker error."
+            raise HTTPException(status_code=502, detail=f"Failed to start app {app.app_id}: {detail}")
+        return result.stdout.strip() or None
+
     def inspect_status(self, app: VulnerableAppDetail) -> VulnerableAppDetail:
         result = self.service._run_docker_command(
-            ["inspect", "-f", "{{.State.Status}}", app.container_name]
+            ["inspect", "-f", "{{json .State}}", app.container_name]
         )
 
         if result.returncode != 0:
@@ -111,13 +129,22 @@ class SingleContainerTemplateHandler(TemplateHandler):
             app.last_error = result.stderr.strip() or "Container no longer available."
             return app
 
-        state = result.stdout.strip().lower()
+        try:
+            state_payload = json.loads(result.stdout.strip() or "{}")
+        except json.JSONDecodeError:
+            state_payload = {}
+
+        state = str(state_payload.get("Status") or "").lower()
+        exit_code = int(state_payload.get("ExitCode") or 0)
         if state == "running":
             app.status = VulnerableAppStatus.RUNNING
             app.last_error = None
-        elif state == "exited":
+        elif state == "exited" and exit_code == 0:
             app.status = VulnerableAppStatus.STOPPED
             app.last_error = None
+        elif state == "exited":
+            app.status = VulnerableAppStatus.ERROR
+            app.last_error = self.service._container_error_summary(app.container_name, exit_code)
         else:
             app.status = VulnerableAppStatus.ERROR
             app.last_error = "Unexpected Docker state: %s" % (state or "unknown")
@@ -133,13 +160,14 @@ class SingleContainerTemplateHandler(TemplateHandler):
         return app
 
     def restart(self, app: VulnerableAppDetail) -> VulnerableAppDetail:
-        result = self.service._run_docker_command(["restart", app.container_name])
+        result = self.service._run_docker_command(["rm", "-f", app.container_name])
         if result.returncode != 0:
             detail = result.stderr.strip() or result.stdout.strip() or "Unknown Docker error."
-            raise HTTPException(status_code=502, detail=f"Failed to restart app {app.app_id}: {detail}")
+            raise HTTPException(status_code=502, detail=f"Failed to recreate app {app.app_id}: {detail}")
+        app.container_id = self._run_new_container(app)
         app.status = VulnerableAppStatus.RUNNING
         app.last_error = None
-        return app
+        return self.inspect_status(app)
 
     def remove(self, app: VulnerableAppDetail) -> VulnerableAppDetail:
         result = self.service._run_docker_command(["rm", "-f", app.container_name])
@@ -381,6 +409,16 @@ class DeploymentService:
             cwd=cwd,
         )
         return result
+
+    def _container_error_summary(self, container_name: Optional[str], exit_code: int) -> str:
+        if not container_name:
+            return f"Container exited with code {exit_code}."
+        result = self._run_docker_command(["logs", "--tail", "20", container_name])
+        log_tail = (result.stderr.strip() or result.stdout.strip()).splitlines()
+        latest_lines = [line.strip() for line in log_tail if line.strip()][-4:]
+        if latest_lines:
+            return f"Container exited with code {exit_code}. Recent logs: {' | '.join(latest_lines)}"
+        return f"Container exited with code {exit_code}."
 
     def ensure_port_available(self, port: int) -> None:
         """Fail fast if the requested localhost port is already in use."""

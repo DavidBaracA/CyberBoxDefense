@@ -195,6 +195,55 @@ h2 {
   margin-bottom: 1rem;
 }
 
+.agent-debug-panel {
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.agent-debug-console {
+  max-height: 24rem;
+  overflow-y: auto;
+  border-radius: 14px;
+  border: 1px solid rgba(98, 208, 255, 0.12);
+  background: #03080d;
+  padding: 0.85rem;
+  font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+}
+
+.agent-debug-entry + .agent-debug-entry {
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid rgba(126, 160, 186, 0.16);
+}
+
+.agent-debug-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  align-items: center;
+  margin-bottom: 0.45rem;
+  color: #7ea0ba;
+  font-size: 0.78rem;
+}
+
+.agent-debug-payload {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #cfe7f8;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.table-error-detail {
+  margin-top: 0.35rem;
+  max-width: 26rem;
+  color: #ffb4a8;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
 .stream-panel,
 .metrics-panel {
   padding: 1rem;
@@ -814,6 +863,31 @@ a:hover {
 .terminal-line.is-muted,
 .terminal-prefix {
   color: #7ea0ba;
+}
+
+.terminal-artifact {
+  margin-bottom: 0.9rem;
+  padding-bottom: 0.9rem;
+  border-bottom: 1px solid rgba(126, 160, 186, 0.18);
+}
+
+.terminal-page-analysis-artifact {
+  margin-top: 0.75rem;
+}
+
+.terminal-artifact-link {
+  display: block;
+  margin: 0.45rem 0;
+}
+
+.terminal-artifact-image {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  object-position: top center;
+  border-radius: 10px;
+  border: 1px solid rgba(98, 208, 255, 0.14);
 }
 
 @media (max-width: 820px) {

@@ -9,10 +9,12 @@ export default function ExperimentRunModal({
   isSubmitting,
   error,
   runningApps,
+  allApps,
   scenarios,
   runFormConfig,
 }) {
   const rows = Array.isArray(runningApps) ? runningApps : [];
+  const managedRows = Array.isArray(allApps) ? allApps : [];
   const scenarioRows = Array.isArray(scenarios) ? scenarios : [];
   const durationOptions = Array.isArray(runFormConfig?.duration_options)
     ? runFormConfig.duration_options
@@ -27,6 +29,10 @@ export default function ExperimentRunModal({
     ? runFormConfig.red_models
     : [];
   const defaultConfig = runFormConfig?.default_config || emptyConfig;
+  const hasManagedApps = managedRows.length > 0;
+  const inactiveManagedSummary = managedRows
+    .map((app) => `${app.name || app.template_id || "app"}: ${app.status || "unknown"}`)
+    .join(", ");
 
   const [selectedTargetId, setSelectedTargetId] = useState("");
   const [selectedScenarios, setSelectedScenarios] = useState([]);
@@ -282,7 +288,9 @@ export default function ExperimentRunModal({
 
           {rows.length === 0 ? (
             <p className="warning-copy">
-              At least one vulnerable app must be running before a session can start.
+              {hasManagedApps
+                ? `No platform-managed vulnerable app is currently running. Managed app states: ${inactiveManagedSummary}. Start or restart one from the Vulnerable Apps panel.`
+                : "No platform-managed vulnerable app is currently running. Only apps deployed through the dashboard's Deploy App flow can be selected for a Red session."}
             </p>
           ) : null}
           {validationError ? <p className="error-banner">{validationError}</p> : null}

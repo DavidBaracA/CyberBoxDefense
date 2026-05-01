@@ -86,7 +86,12 @@ export default function VulnerableAppsPanel({
                       app.template_id ||
                       "unknown"}
                   </td>
-                  <td>{renderStatus(app.status)}</td>
+                  <td>
+                    {renderStatus(app.status)}
+                    {app.last_error ? (
+                      <div className="table-error-detail">{app.last_error}</div>
+                    ) : null}
+                  </td>
                   <td>{app.port ?? "N/A"}</td>
                   <td>
                     {app.target_url ? (

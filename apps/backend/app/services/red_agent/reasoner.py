@@ -8,11 +8,12 @@ while staying constrained to platform-managed targets.
 from __future__ import annotations
 
 import json
+import socket
 from dataclasses import dataclass
 from typing import Optional, Protocol
 from urllib import error, request
 
-from ...red_agent_models import AttackScenario
+from ...red_agent_models import AttackScenario, RedAgentPageAnalysis
 from ...run_models import RunConfig
 from ...runtime_settings import get_runtime_bool, get_runtime_float, get_runtime_setting
 
@@ -20,6 +21,7 @@ from ...runtime_settings import get_runtime_bool, get_runtime_float, get_runtime
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 DEFAULT_OLLAMA_TIMEOUT_SECONDS = 120.0
 DEFAULT_OLLAMA_THINK = False
+DEFAULT_OLLAMA_NUM_PREDICT = 128
 DEFAULT_RED_MODEL_ID = "gemma3:4b"
 
 
@@ -60,6 +62,7 @@ class RedPlanningInput:
     try_all_available: bool
     stop_on_first_confirmed_vulnerability: bool
     candidate_scenarios: list[AttackScenario]
+    analyzed_pages: list[RedAgentPageAnalysis]
 
 
 @dataclass(frozen=True)
@@ -68,6 +71,8 @@ class RedPlanningDecision:
 
     ordered_scenario_ids: list[str]
     rationale: str
+    raw_response: Optional[str] = None
+    error: Optional[str] = None
 
 
 class RedPlanningReasoner(Protocol):
@@ -76,17 +81,21 @@ class RedPlanningReasoner(Protocol):
     @property
     def name(self) -> str:
         """Runtime name for operator-visible logs."""
+        ...
 
     @property
     def selected_model_id(self) -> Optional[str]:
         """Stable UI-facing model identifier."""
+        ...
 
     @property
     def selected_model_label(self) -> Optional[str]:
         """Human-readable planning model label."""
+        ...
 
     def choose_order(self, payload: RedPlanningInput) -> RedPlanningDecision:
         """Return an ordered subset/permutation of already-allowed scenarios."""
+        ...
 
 
 class HeuristicRedPlanningReasoner:
@@ -100,6 +109,8 @@ class HeuristicRedPlanningReasoner:
         return RedPlanningDecision(
             ordered_scenario_ids=[scenario.scenario_id for scenario in payload.candidate_scenarios],
             rationale="Used deterministic bounded planner ordering.",
+            raw_response=None,
+            error=None,
         )
 
 
@@ -134,9 +145,17 @@ class OllamaRedPlanningReasoner:
         return self._model_label
 
     def choose_order(self, payload: RedPlanningInput) -> RedPlanningDecision:
-        response_text = self._call_ollama(self._build_prompt(payload))
+        prompt = self._build_prompt(payload)
+        print("[RedPlanningReasoner] Prompt sent to Ollama:")
+        print(prompt)
+        response_text = self._call_ollama(prompt)
+        print("[RedPlanningReasoner] Raw response received from Ollama:")
+        print(response_text)
         parsed = self._parse_response(response_text)
-        requested_ids = [str(item).strip() for item in parsed.get("ordered_scenario_ids", [])]
+        ordered_scenario_ids = parsed.get("ordered_scenario_ids", [])
+        if not isinstance(ordered_scenario_ids, list):
+            raise RuntimeError("Ollama planning output ordered_scenario_ids was not a list.")
+        requested_ids = [str(item).strip() for item in ordered_scenario_ids]
         allowed_ids = [scenario.scenario_id for scenario in payload.candidate_scenarios]
         ordered_ids = [scenario_id for scenario_id in requested_ids if scenario_id in allowed_ids]
         for scenario_id in allowed_ids:
@@ -145,27 +164,34 @@ class OllamaRedPlanningReasoner:
         return RedPlanningDecision(
             ordered_scenario_ids=ordered_ids,
             rationale=str(parsed.get("rationale", "Used Ollama-backed bounded scenario ordering.")),
+            raw_response=response_text,
+            error=None,
         )
 
     def _build_prompt(self, payload: RedPlanningInput) -> str:
         scenario_lines = [
-            f"- {scenario.scenario_id}: {scenario.display_name}. {scenario.description}"
+            f"- {scenario.scenario_id}: {scenario.display_name}"
             for scenario in payload.candidate_scenarios
         ]
+        analyzed_pages_summary = [
+            {
+                "page_url": page.page_url,
+                "page_type": page.page_type,
+                "confidence": page.confidence,
+                "recommended_scenario_ids": [item.scenario_id for item in page.recommended_scenarios],
+            }
+            for page in payload.analyzed_pages
+        ]
         return (
-            "You are a bounded Red-team planning assistant in a controlled local lab. "
-            "You must only reorder the already-allowed local scenarios. "
-            "Do not invent new scenarios, commands, payloads, or targets. "
-            "Return only a safer, bounded plan order for the existing scenarios.\n\n"
+            "Reorder only the allowed local Red scenarios. "
+            "Do not invent scenarios, commands, payloads, or targets. "
+            "Return strict JSON only: ordered_scenario_ids, rationale.\n\n"
             f"Target name: {payload.target_name}\n"
             f"Target url: {payload.target_url}\n"
             f"Attack depth: {payload.attack_depth}\n"
-            f"Duration seconds: {payload.duration_seconds}\n"
-            f"Try all available: {payload.try_all_available}\n"
-            f"Stop on first confirmed vulnerability: {payload.stop_on_first_confirmed_vulnerability}\n"
+            f"Analyzed pages: {json.dumps(analyzed_pages_summary, ensure_ascii=True)}\n"
             "Allowed scenarios:\n"
             + "\n".join(scenario_lines)
-            + "\n\nReturn strict JSON with keys: ordered_scenario_ids, rationale."
         )
 
     def _call_ollama(self, prompt: str) -> str:
@@ -185,7 +211,10 @@ class OllamaRedPlanningReasoner:
                 },
                 "required": ["ordered_scenario_ids", "rationale"],
             },
-            "options": {"temperature": 0.1},
+            "options": {
+                "temperature": 0.1,
+                "num_predict": DEFAULT_OLLAMA_NUM_PREDICT,
+            },
         }
         encoded = json.dumps(payload).encode("utf-8")
         req = request.Request(
@@ -197,7 +226,15 @@ class OllamaRedPlanningReasoner:
         try:
             with request.urlopen(req, timeout=self._timeout_seconds) as response:
                 body = response.read().decode("utf-8")
+        except (TimeoutError, socket.timeout) as exc:
+            raise RuntimeError(
+                f"Ollama request timed out after {int(self._timeout_seconds)} seconds"
+            ) from exc
         except error.URLError as exc:
+            if isinstance(exc.reason, TimeoutError):
+                raise RuntimeError(
+                    f"Ollama request timed out after {int(self._timeout_seconds)} seconds"
+                ) from exc
             raise RuntimeError(f"Ollama request failed: {exc}") from exc
 
         parsed = json.loads(body)
@@ -214,7 +251,7 @@ class OllamaRedPlanningReasoner:
 
 
 class FallbackRedPlanningReasoner:
-    """Prefer a primary model-backed planner and fall back cleanly."""
+    """Prefer a primary model-backed planner and fall back cleanly if it fails."""
 
     def __init__(self, primary: RedPlanningReasoner, fallback: RedPlanningReasoner) -> None:
         self._primary = primary
@@ -246,7 +283,9 @@ class FallbackRedPlanningReasoner:
             result = self._fallback.choose_order(payload)
             return RedPlanningDecision(
                 ordered_scenario_ids=result.ordered_scenario_ids,
-                rationale=f"Primary Red planning model unavailable: {exc}. {result.rationale}",
+                rationale=result.rationale,
+                raw_response=result.raw_response,
+                error=f"Primary Red planning model unavailable: {exc}",
             )
 
 
@@ -283,6 +322,6 @@ def build_red_planning_reasoner(model_id: Optional[str] = None) -> RedPlanningRe
         timeout_seconds=timeout,
         think=think,
     )
-    if mode == "ollama":
+    if mode in {"auto", "ollama"}:
         return ollama
-    return FallbackRedPlanningReasoner(primary=ollama, fallback=heuristic)
+    return ollama

@@ -32,12 +32,30 @@ class RedAgentRunStatus(str, Enum):
     ERROR = "error"
 
 
+class RedAgentRuntimePhase(str, Enum):
+    IDLE = "idle"
+    STARTING = "starting"
+    PLANNING = "planning"
+    EXECUTING = "executing"
+    STOPPED = "stopped"
+    COMPLETED = "completed"
+    ERROR = "error"
+
+
 class AttackScenario(BaseModel):
     """One predefined safe local attack scenario."""
 
     scenario_id: str
     display_name: str
     description: str
+    vulnerability_class: str = "generic_web"
+    prerequisites: list[str] = Field(default_factory=list)
+    candidate_page_signals: list[str] = Field(default_factory=list)
+    candidate_element_signals: list[str] = Field(default_factory=list)
+    bounded_action_template: str = ""
+    success_indicators: list[str] = Field(default_factory=list)
+    evidence_requirements: list[str] = Field(default_factory=list)
+    safety_limits: list[str] = Field(default_factory=list)
     execution_mode: str = "http"
     enabled: bool = True
     notes: Optional[str] = None
@@ -60,6 +78,10 @@ class AttackTechniquePlan(BaseModel):
     estimated_cost: int = Field(ge=1)
     estimated_difficulty: str
     priority_order: int = Field(ge=1)
+    rationale: Optional[str] = None
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    target_page_url: Optional[str] = None
+    supporting_signals: list[str] = Field(default_factory=list)
 
 
 class AttackExecutionPlan(BaseModel):
@@ -68,6 +90,63 @@ class AttackExecutionPlan(BaseModel):
     techniques: list[AttackTechniquePlan] = Field(default_factory=list)
     planner_name: str = "heuristic"
     planner_rationale: Optional[str] = None
+    planner_raw_response: Optional[str] = None
+    planner_error: Optional[str] = None
+    analyzed_pages: list["RedAgentPageAnalysis"] = Field(default_factory=list)
+
+
+class PageElementSignal(BaseModel):
+    """One extracted candidate UI element from a page analysis pass."""
+
+    element_id: str = Field(default_factory=lambda: str(uuid4()))
+    element_kind: str
+    text: Optional[str] = None
+    locator_hint: Optional[str] = None
+    input_type: Optional[str] = None
+    action: Optional[str] = None
+    href: Optional[str] = None
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    signals: list[str] = Field(default_factory=list)
+
+
+class ScenarioRecommendation(BaseModel):
+    """One scenario recommendation for a page with supporting rationale."""
+
+    scenario_id: str
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    rationale: str = ""
+    source: str = "heuristic"
+    supporting_signals: list[str] = Field(default_factory=list)
+    candidate_element_ids: list[str] = Field(default_factory=list)
+    bounded_action_summary: Optional[str] = None
+
+
+class PageAnalysisEvidence(BaseModel):
+    """Evidence artifacts and summaries attached to one analyzed page."""
+
+    screenshot_path: Optional[str] = None
+    screenshot_url: Optional[str] = None
+    page_title: Optional[str] = None
+    visible_text_excerpt: Optional[str] = None
+    dom_summary: dict[str, Any] = Field(default_factory=dict)
+    heuristic_summary: dict[str, Any] = Field(default_factory=dict)
+    vision_summary: dict[str, Any] = Field(default_factory=dict)
+
+
+class RedAgentPageAnalysis(BaseModel):
+    """Structured hybrid page understanding result for Red planning."""
+
+    analysis_id: str = Field(default_factory=lambda: str(uuid4()))
+    page_url: str
+    page_type: str = "unknown"
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    analyzer_name: str = "heuristic"
+    rationale: str = ""
+    candidate_elements: list[PageElementSignal] = Field(default_factory=list)
+    candidate_interaction_surfaces: list[str] = Field(default_factory=list)
+    recommended_scenarios: list[ScenarioRecommendation] = Field(default_factory=list)
+    evidence: PageAnalysisEvidence = Field(default_factory=PageAnalysisEvidence)
+    analyzed_at: datetime = Field(default_factory=utc_now)
 
 
 class RedAgentStartRequest(BaseModel):
@@ -131,11 +210,14 @@ class AttackRunRecord(BaseModel):
     remaining_techniques: list[str] = Field(default_factory=list)
     remaining_time_budget_seconds: Optional[int] = None
     status: RedAgentRunStatus = RedAgentRunStatus.IDLE
+    runtime_phase: RedAgentRuntimePhase = RedAgentRuntimePhase.IDLE
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     emitted_events_count: int = 0
     latest_artifact_path: Optional[str] = None
     latest_artifact_url: Optional[str] = None
+    page_analysis_artifact_path: Optional[str] = None
+    page_analysis_artifact_url: Optional[str] = None
     message: str = "Red agent is idle."
 
 
@@ -209,4 +291,8 @@ class RedAgentSessionDetail(RedAgentSessionSummary):
     logs: list[RedAgentLogEvent] = Field(default_factory=list)
     screenshots: list[RedAgentSessionScreenshot] = Field(default_factory=list)
     vulnerabilities: list[RedAgentSessionVulnerability] = Field(default_factory=list)
+    page_analyses: list[RedAgentPageAnalysis] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+AttackExecutionPlan.model_rebuild()

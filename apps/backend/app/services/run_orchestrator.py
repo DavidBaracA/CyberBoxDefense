@@ -118,6 +118,30 @@ class RunOrchestrator:
                 self._blue_agent_service.stop(
                     reason="Blue agent stopped because the run was stopped by the operator."
                 )
+                self._run_service.mark_cancelled(
+                    run.run_id,
+                    termination_reason=RunTerminationReason.STOPPED_BY_USER,
+                )
+            elif termination_reason in {
+                RunTerminationReason.COMPLETED_PLAN_FINISHED,
+                RunTerminationReason.FIRST_CONFIRMED_VULNERABILITY,
+                RunTerminationReason.FAILED,
+            }:
+                graceful_seconds = run.config.graceful_shutdown_seconds
+                if graceful_seconds > 0:
+                    time.sleep(graceful_seconds)
+                self._blue_agent_service.stop(
+                    reason=(
+                        "Blue agent stopped after the configured post-Red reporting window."
+                    )
+                )
+                if termination_reason == RunTerminationReason.FAILED:
+                    self._run_service.mark_failed(run.run_id)
+                else:
+                    self._run_service.mark_completed(
+                        run.run_id,
+                        termination_reason=termination_reason,
+                    )
         finally:
             with self._shutdown_lock:
                 if self._active_shutdown_run_id == run.run_id:

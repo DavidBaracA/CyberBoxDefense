@@ -112,6 +112,42 @@ function VulnerabilityList({ vulnerabilities }) {
   );
 }
 
+function PageAnalysisList({ analyses }) {
+  const rows = Array.isArray(analyses) ? analyses : [];
+
+  if (rows.length === 0) {
+    return <p className="empty-state">No page analyses were stored for this session.</p>;
+  }
+
+  return (
+    <div className="session-vulnerability-list">
+      {rows.map((item) => (
+        <article key={item.analysis_id} className="session-vulnerability-card">
+          <div className="session-vulnerability-header">
+            <div>
+              <strong>{item.page_type || "unknown_page"}</strong>
+              <p className="panel-copy">{item.page_url}</p>
+            </div>
+            <span className="status-badge">
+              confidence {Number(item.confidence || 0).toFixed(2)}
+            </span>
+          </div>
+          <p><strong>Analyzer:</strong> {item.analyzer_name || "unknown"}</p>
+          <p><strong>Rationale:</strong> {item.rationale || "No rationale stored."}</p>
+          <p>
+            <strong>Recommended scenarios:</strong>{" "}
+            {(Array.isArray(item.recommended_scenarios) && item.recommended_scenarios.length > 0)
+              ? item.recommended_scenarios
+                  .map((scenario) => `${scenario.scenario_id} (${Number(scenario.confidence || 0).toFixed(2)})`)
+                  .join(", ")
+              : "None"}
+          </p>
+        </article>
+      ))}
+    </div>
+  );
+}
+
 function SessionDetail({ detail }) {
   if (!detail) {
     return <p className="empty-state">Select a completed session to inspect its details.</p>;
@@ -146,6 +182,9 @@ function SessionDetail({ detail }) {
 
       <SectionHeading title="Vulnerabilities" copy="Confirmed findings captured during the completed Red-agent session." />
       <VulnerabilityList vulnerabilities={detail.vulnerabilities} />
+
+      <SectionHeading title="Page Analysis" copy="Hybrid DOM and screenshot-backed page understanding stored for planner review." />
+      <PageAnalysisList analyses={detail.page_analyses} />
 
       <SectionHeading title="Screenshots" copy="Click a screenshot to preview it larger or open it in a new tab." />
       <ScreenshotGallery screenshots={detail.screenshots} />

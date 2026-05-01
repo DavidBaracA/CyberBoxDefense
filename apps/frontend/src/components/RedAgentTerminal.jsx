@@ -6,7 +6,10 @@ function formatLinePrefix(entry) {
   return `[${timestamp}] ${level}`;
 }
 
-export default function RedAgentTerminal({ logs, streamState }) {
+export default function RedAgentTerminal({
+  logs,
+  streamState,
+}) {
   const rows = Array.isArray(logs) ? logs : [];
   const containerRef = useRef(null);
 
@@ -33,4 +36,3 @@ export default function RedAgentTerminal({ logs, streamState }) {
     </div>
   );
 }
-

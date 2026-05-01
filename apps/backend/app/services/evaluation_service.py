@@ -28,13 +28,20 @@ ATTACK_LABEL_ALIASES: dict[str, str] = {
     "suspected_path_traversal": "path_traversal",
     "brute_force": "brute_force",
     "login_bruteforce": "brute_force",
-    "browser_login_bruteforce": "brute_force",
+    "brute_force_login": "brute_force",
+    "sql_injection_probe": "sql_injection",
+    "reflected_xss_probe": "xss",
+    "file_upload_probe": "file_upload_probe",
+    "open_redirect_probe": "open_redirect_probe",
     "suspected_bruteforce": "brute_force",
     "repeated_internal_error_burst": "internal_error_burst",
 }
 NON_EVALUATED_ATTACK_LABELS = {
-    "browser_homepage_smoke",
-    "browser_login_navigation",
+    "brute_force_login",
+    "sql_injection_probe",
+    "reflected_xss_probe",
+    "file_upload_probe",
+    "open_redirect_probe",
 }
 
 

@@ -5,5 +5,6 @@ __pycache__/
 .venv/
 node_modules/
 dist/
+apps/frontend/test-results/
 logs/observability/*.log
 data/evaluation_ground_truth/*.json

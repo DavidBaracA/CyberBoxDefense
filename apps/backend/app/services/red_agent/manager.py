@@ -16,6 +16,7 @@ from uuid import uuid4
 from fastapi import HTTPException
 
 from ...models import ActionEvent, AttackGroundTruth, Severity, TelemetryEvent, TelemetryKind, TelemetrySource
+from ...runtime_settings import get_runtime_float
 from ...red_agent_models import (
     AttackExecutionPlan,
     RedReasonerOption,
@@ -24,6 +25,7 @@ from ...red_agent_models import (
     RedAgentActionResponse,
     RedAgentLogEvent,
     RedAgentLogsResponse,
+    RedAgentRuntimePhase,
     RedAgentRunStatus,
     RedAgentSessionDetail,
     RedAgentSessionScreenshot,
@@ -35,6 +37,7 @@ from ...run_models import Run, RunStatus, RunTerminationReason
 from ...services.run_service import RunService
 from ...services.run_state_store import RunStateStore
 from ...vulnerable_apps_models import VulnerableAppDetail, VulnerableAppStatus
+from .page_analyzer import PageAnalyzer
 from .planner import AttackPlanner
 from .reasoner import (
     build_red_planning_reasoner,
@@ -47,6 +50,9 @@ from .session_history import RedAgentSessionHistoryStore
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+DEFAULT_BROWSER_SCENARIO_TIMEOUT_SECONDS = 60.0
 
 
 class RedAgentManager:
@@ -65,6 +71,7 @@ class RedAgentManager:
         ground_truth_callback: Callable[[AttackGroundTruth], AttackGroundTruth],
         action_callback: Optional[Callable[[ActionEvent], ActionEvent]] = None,
         planner: Optional[AttackPlanner] = None,
+        page_analyzer: Optional[PageAnalyzer] = None,
         run_state_store: Optional[RunStateStore] = None,
         session_history_store: Optional[RedAgentSessionHistoryStore] = None,
     ) -> None:
@@ -74,6 +81,9 @@ class RedAgentManager:
         self._ground_truth_callback = ground_truth_callback
         self._action_callback = action_callback
         self._planner = planner or AttackPlanner()
+        self._page_analyzer = page_analyzer or PageAnalyzer(
+            page_screenshot_callback=self._publish_page_analysis_screenshot
+        )
         self._run_state_store = run_state_store
         self._session_history_store = session_history_store
         self._state = RedAgentStatus()
@@ -137,6 +147,15 @@ class RedAgentManager:
                 "log_entry",
                 {"entry": entry.model_dump(mode="json")},
                 legacy={"type": "log", "entry": entry.model_dump(mode="json")},
+            )
+        )
+
+    def _append_debug_event(self, payload: dict[str, object]) -> None:
+        self._broadcast(
+            self._stream_event(
+                "debug_event",
+                payload,
+                legacy={"type": "debug", "entry": payload},
             )
         )
 
@@ -282,6 +301,10 @@ class RedAgentManager:
         self._state.completed_techniques = list(completed_techniques)
         self._state.remaining_techniques = list(remaining_techniques)
         self._state.remaining_time_budget_seconds = self._remaining_budget_seconds(run)
+        if self._state.status in {RedAgentRunStatus.STARTING, RedAgentRunStatus.RUNNING}:
+            self._state.runtime_phase = (
+                RedAgentRuntimePhase.EXECUTING if current_technique else self._state.runtime_phase
+            )
         self._broadcast_status()
 
     def _stop_reason_from_run(self, run: Run) -> Optional[RunTerminationReason]:
@@ -355,6 +378,7 @@ class RedAgentManager:
         run_id: str,
         target: VulnerableAppDetail,
         scenario_id: str,
+        target_page_url: Optional[str] = None,
     ) -> dict[str, object]:
         repo_root = Path(__file__).resolve().parents[5]
         frontend_dir = repo_root / "apps" / "frontend"
@@ -368,17 +392,27 @@ class RedAgentManager:
                 "CYBERBOX_SCENARIO_ID": scenario_id,
                 "CYBERBOX_RUN_ID": run_id,
                 "CYBERBOX_OUTPUT_DIR": str(output_dir),
+                "CYBERBOX_TARGET_PAGE_URL": target_page_url or target.target_url,
             }
         )
-        completed = subprocess.run(
-            ["node", str(runner_path)],
-            cwd=str(frontend_dir),
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=45,
-            check=False,
+        timeout_seconds = get_runtime_float(
+            "RED_AGENT_BROWSER_SCENARIO_TIMEOUT_SECONDS",
+            DEFAULT_BROWSER_SCENARIO_TIMEOUT_SECONDS,
         )
+        try:
+            completed = subprocess.run(
+                ["node", str(runner_path)],
+                cwd=str(frontend_dir),
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"Browser scenario '{scenario_id}' timed out after {int(timeout_seconds)} seconds."
+            ) from exc
         if completed.returncode != 0:
             stderr = completed.stderr.strip() or completed.stdout.strip() or "Unknown Playwright runner failure."
             raise RuntimeError(stderr)
@@ -414,6 +448,154 @@ class RedAgentManager:
             )
         )
 
+    def _record_page_analysis(self, analysis) -> None:
+        if self._current_session is None:
+            return
+        self._current_session.page_analyses.append(analysis)
+
+    def _publish_page_analysis_screenshot(self, screenshot_path: str, screenshot_url: str) -> None:
+        self._state.latest_artifact_path = screenshot_path
+        self._state.latest_artifact_url = screenshot_url
+        self._state.page_analysis_artifact_path = screenshot_path
+        self._state.page_analysis_artifact_url = screenshot_url
+        self._broadcast_status()
+
+    def _store_analysis_artifacts(self, analyzed_pages: list[object]) -> None:
+        for analysis in analyzed_pages:
+            self._record_page_analysis(analysis)
+            if analysis.evidence.screenshot_path and analysis.evidence.screenshot_url:
+                self._state.latest_artifact_path = analysis.evidence.screenshot_path
+                self._state.latest_artifact_url = analysis.evidence.screenshot_url
+                self._state.page_analysis_artifact_path = analysis.evidence.screenshot_path
+                self._state.page_analysis_artifact_url = analysis.evidence.screenshot_url
+                self._record_session_screenshot(
+                    scenario_id="page_analysis",
+                    scenario_name="Page Analysis",
+                    screenshot_path=analysis.evidence.screenshot_path,
+                    artifact_url=analysis.evidence.screenshot_url,
+                    summary=analysis.rationale,
+                )
+
+    def _append_analysis_logs(self, analyzed_pages: list[object]) -> None:
+        for analysis in analyzed_pages:
+            self._append_log(
+                f"Analyzed page {analysis.page_url} as {analysis.page_type} via {analysis.analyzer_name}.",
+                level="info",
+            )
+            raw_response = analysis.evidence.vision_summary.get("raw_response")
+            if raw_response:
+                self._append_debug_event(
+                    {
+                        "level": "info",
+                        "type": "vision_raw_response",
+                        "raw_response": raw_response,
+                        "timestamp": utc_now().isoformat(),
+                    }
+                )
+            if analysis.recommended_scenarios:
+                summary = ", ".join(
+                    f"{item.scenario_id} ({item.confidence:.2f})"
+                    for item in analysis.recommended_scenarios
+                )
+                self._append_log(f"Applicable scenarios: {summary}.", level="info")
+
+    def _apply_planned_execution_state(
+        self,
+        *,
+        run: Run,
+        target: VulnerableAppDetail,
+        selected_model,
+        plan: AttackExecutionPlan,
+    ) -> None:
+        planned_technique_ids = [technique.technique_id for technique in plan.techniques]
+        self._state.target_app_id = target.app_id
+        self._state.target_name = target.name
+        self._state.target_url = target.target_url
+        self._state.selected_model_id = selected_model.model_id
+        self._state.selected_model_label = selected_model.label
+        self._state.selected_scenarios = planned_technique_ids
+        self._state.current_technique = None
+        self._state.completed_techniques = []
+        self._state.remaining_techniques = planned_technique_ids
+        self._state.remaining_time_budget_seconds = self._remaining_budget_seconds(run)
+        self._state.status = RedAgentRunStatus.RUNNING
+        self._state.runtime_phase = RedAgentRuntimePhase.EXECUTING
+        self._state.message = "Red agent is executing the generated bounded attack plan."
+
+        if self._current_session is not None:
+            self._current_session.target_app_id = target.app_id
+            self._current_session.target_name = target.name
+            self._current_session.target_url = target.target_url
+            self._current_session.selected_scenarios = planned_technique_ids
+            self._current_session.selected_model_id = selected_model.model_id
+            self._current_session.selected_model_label = selected_model.label
+            self._current_session.metadata.update(
+                {
+                    "planner_name": plan.planner_name,
+                    "planner_rationale": plan.planner_rationale,
+                    "planner_raw_response": plan.planner_raw_response,
+                    "planner_error": plan.planner_error,
+                    "page_analysis_count": len(plan.analyzed_pages),
+                }
+            )
+
+        self._append_log(
+            f"Planning backend selected: {plan.planner_name} via {selected_model.label}.",
+            level="info",
+        )
+        if plan.planner_error:
+            self._append_log(f"Planning model fallback: {plan.planner_error}", level="warning")
+        if plan.planner_rationale:
+            self._append_log(f"Planning rationale: {plan.planner_rationale}", level="info")
+        if plan.planner_raw_response:
+            self._append_log(
+                f"Planning raw model response: {plan.planner_raw_response}",
+                level="info",
+            )
+        self._append_log(
+            f"Planned techniques: {', '.join(planned_technique_ids) if planned_technique_ids else 'none'}.",
+            level="info",
+        )
+        self._broadcast_status()
+
+    def _build_plan_for_run(
+        self,
+        run: Run,
+        target: VulnerableAppDetail,
+        selected_model,
+    ) -> AttackExecutionPlan:
+        if self._stop_reason_from_run(run):
+            raise RuntimeError("Red agent stop requested before planning started.")
+        self._state.runtime_phase = RedAgentRuntimePhase.PLANNING
+        self._state.message = "Red agent is analyzing the target and preparing the scenario plan."
+        self._broadcast_status()
+        self._append_log("Page analysis started.", level="info")
+        analyzed_pages = [self._page_analyzer.analyze_target(target=target, run_id=run.run_id)]
+        self._append_analysis_logs(analyzed_pages)
+        self._store_analysis_artifacts(analyzed_pages)
+        self._broadcast_status()
+
+        if self._stop_reason_from_run(run):
+            raise RuntimeError("Red agent stop requested during page analysis.")
+
+        self._append_log("Scenario planning started.", level="info")
+        self._planner = AttackPlanner(
+            reasoner=build_red_planning_reasoner(run.config.red_model_id)
+        )
+        plan = self._planner.plan(
+            run.config,
+            target_name=target.name,
+            target_url=target.target_url,
+            analyzed_pages=analyzed_pages,
+        )
+        self._apply_planned_execution_state(
+            run=run,
+            target=target,
+            selected_model=selected_model,
+            plan=plan,
+        )
+        return plan
+
     def _record_session_vulnerability(
         self,
         *,
@@ -424,10 +606,10 @@ class RedAgentManager:
     ) -> None:
         if self._current_session is None:
             return
-        vulnerability_type = "credential_attack" if scenario_id == "browser_login_bruteforce" else scenario_id
+        vulnerability_type = "credential_attack" if scenario_id == "brute_force_login" else scenario_id
         vulnerability_title = (
             "Login brute-force vulnerability signal"
-            if scenario_id == "browser_login_bruteforce"
+            if scenario_id == "brute_force_login"
             else f"{scenario_name} vulnerability signal"
         )
         vulnerability = RedAgentSessionVulnerability(
@@ -467,6 +649,13 @@ class RedAgentManager:
         scenario_id = technique.technique_id
         scenario = get_scenario(scenario_id)
         self._append_log(f"Running browser scenario: {scenario.display_name}.", level="info")
+        if technique.target_page_url:
+            self._append_log(
+                f"Planner selected page {technique.target_page_url} with confidence {technique.confidence:.2f}.",
+                level="info",
+            )
+        if technique.rationale:
+            self._append_log(f"Technique rationale: {technique.rationale}", level="info")
         self._record_ground_truth(run_id, target, scenario_id, "started", {"path": target.target_url})
         self._record_action(
             "scenario_started",
@@ -474,7 +663,12 @@ class RedAgentManager:
             run_id=run_id,
             details={"scenario_id": scenario_id, "execution_mode": "browser"},
         )
-        result = self._perform_browser_scenario(run_id, target, scenario_id)
+        result = self._perform_browser_scenario(
+            run_id,
+            target,
+            scenario_id,
+            target_page_url=technique.target_page_url,
+        )
         self._append_log(result.get("summary", "Browser scenario completed."), level="info")
         screenshot_path = result.get("screenshot_path")
         if screenshot_path:
@@ -513,6 +707,8 @@ class RedAgentManager:
                 "artifact_url": self._state.latest_artifact_url,
                 "execution_mode": "browser",
                 "confirmed_vulnerability": confirmed_vulnerability,
+                "planner_confidence": technique.confidence,
+                "planner_rationale": technique.rationale,
             },
         )
         self._record_action(
@@ -523,6 +719,7 @@ class RedAgentManager:
                 "scenario_id": scenario_id,
                 "execution_mode": "browser",
                 "confirmed_vulnerability": confirmed_vulnerability,
+                "planner_confidence": technique.confidence,
             },
         )
         if confirmed_vulnerability:
@@ -612,43 +809,70 @@ class RedAgentManager:
                 return stop_reason
         return None
 
-    def _run_loop(self, run: Run, target: VulnerableAppDetail, plan: AttackExecutionPlan) -> None:
+    def _run_loop(self, run: Run, target: VulnerableAppDetail, selected_model) -> None:
         try:
+            plan = self._build_plan_for_run(run, target, selected_model)
             termination_reason = self._run_planned_techniques(run, target, plan)
             with self._state_lock:
                 if termination_reason == RunTerminationReason.COMPLETED_TIMEOUT:
                     self._state.status = RedAgentRunStatus.STOPPED
+                    self._state.runtime_phase = RedAgentRuntimePhase.STOPPED
                     self._state.message = "Red agent stopped because the run time budget expired."
                 elif termination_reason == RunTerminationReason.STOPPED_BY_USER:
                     self._state.status = RedAgentRunStatus.STOPPED
+                    self._state.runtime_phase = RedAgentRuntimePhase.STOPPED
                     self._state.message = "Red agent run stopped by operator."
                 elif termination_reason == RunTerminationReason.FIRST_CONFIRMED_VULNERABILITY:
-                    self._run_service.mark_completed(
+                    self._run_service.update_run(
                         run.run_id,
+                        status=RunStatus.STOPPING,
                         termination_reason=RunTerminationReason.FIRST_CONFIRMED_VULNERABILITY,
                     )
                     self._state.status = RedAgentRunStatus.COMPLETED
+                    self._state.runtime_phase = RedAgentRuntimePhase.COMPLETED
                     self._state.message = (
                         "Red agent stopped after the first confirmed vulnerability as configured."
                     )
                 else:
-                    self._run_service.mark_completed(
+                    self._run_service.update_run(
                         run.run_id,
+                        status=RunStatus.STOPPING,
                         termination_reason=RunTerminationReason.COMPLETED_PLAN_FINISHED,
                     )
                     self._state.status = RedAgentRunStatus.COMPLETED
+                    self._state.runtime_phase = RedAgentRuntimePhase.COMPLETED
                     self._state.message = "Red agent completed the planned techniques."
                 self._state.finished_at = utc_now()
                 self._state.remaining_time_budget_seconds = self._remaining_budget_seconds(run)
             self._append_log("Attack run finished.", level="info")
             self._broadcast_status()
         except Exception as exc:
-            self._run_service.mark_failed(run.run_id)
-            with self._state_lock:
-                self._state.status = RedAgentRunStatus.ERROR
-                self._state.message = f"Red agent runtime error: {exc}"
-                self._state.finished_at = utc_now()
-            self._append_log(f"Red agent runtime error: {exc}", level="error")
+            stop_reason = self._stop_reason_from_run(run)
+            if stop_reason == RunTerminationReason.STOPPED_BY_USER:
+                with self._state_lock:
+                    self._state.status = RedAgentRunStatus.STOPPED
+                    self._state.runtime_phase = RedAgentRuntimePhase.STOPPED
+                    self._state.message = "Red agent run stopped by operator."
+                    self._state.finished_at = utc_now()
+                self._append_log("Red agent stopped during planning or execution.", level="warning")
+            else:
+                failed_during_planning = self._state.runtime_phase == RedAgentRuntimePhase.PLANNING
+                error_message = (
+                    f"Red agent planning failed: {exc}"
+                    if failed_during_planning
+                    else f"Red agent runtime error: {exc}"
+                )
+                self._run_service.update_run(
+                    run.run_id,
+                    status=RunStatus.STOPPING,
+                    termination_reason=RunTerminationReason.FAILED,
+                )
+                with self._state_lock:
+                    self._state.status = RedAgentRunStatus.ERROR
+                    self._state.runtime_phase = RedAgentRuntimePhase.ERROR
+                    self._state.message = error_message
+                    self._state.finished_at = utc_now()
+                self._append_log(error_message, level="error")
             self._broadcast_status()
         finally:
             self._finalize_session()
@@ -675,15 +899,6 @@ class RedAgentManager:
             )
         target = self._resolve_target(run.app_id)
         selected_model = resolve_red_planning_model_option(run.config.red_model_id)
-        self._planner = AttackPlanner(
-            reasoner=build_red_planning_reasoner(run.config.red_model_id)
-        )
-        plan = self._planner.plan(
-            run.config,
-            target_name=target.name,
-            target_url=target.target_url,
-        )
-        planned_technique_ids = [technique.technique_id for technique in plan.techniques]
         with self._state_lock:
             if self._thread and self._thread.is_alive() and self._state.status in {
                 RedAgentRunStatus.STARTING,
@@ -699,19 +914,22 @@ class RedAgentManager:
                 target_app_id=target.app_id,
                 target_name=target.name,
                 target_url=target.target_url,
-                selected_scenarios=planned_technique_ids,
+                selected_scenarios=[],
                 selected_model_id=selected_model.model_id,
                 selected_model_label=selected_model.label,
                 current_technique=None,
                 completed_techniques=[],
-                remaining_techniques=planned_technique_ids,
+                remaining_techniques=[],
                 remaining_time_budget_seconds=self._remaining_budget_seconds(run),
                 status=RedAgentRunStatus.STARTING,
+                runtime_phase=RedAgentRuntimePhase.STARTING,
                 started_at=utc_now(),
-                message="Red agent is preparing the planned bounded scenario run.",
+                message="Red agent is starting, analyzing the target, and preparing the scenario plan.",
                 emitted_events_count=0,
                 latest_artifact_path=None,
                 latest_artifact_url=None,
+                page_analysis_artifact_path=None,
+                page_analysis_artifact_url=None,
             )
             self._current_session = RedAgentSessionDetail(
                 session_id=run.run_id,
@@ -722,37 +940,23 @@ class RedAgentManager:
                 target_url=target.target_url,
                 status=RedAgentRunStatus.STARTING,
                 summary=self._state.message,
-                selected_scenarios=planned_technique_ids,
+                selected_scenarios=[],
                 selected_model_id=selected_model.model_id,
                 selected_model_label=selected_model.label,
                 completed_techniques=[],
                 logs=[],
                 screenshots=[],
                 vulnerabilities=[],
-                metadata={
-                    "planner_name": plan.planner_name,
-                    "planner_rationale": plan.planner_rationale,
-                },
+                page_analyses=[],
+                metadata={},
             )
             self._append_log("Red agent initialization started.", level="info")
             self._append_log(f"Attached to run {run.run_id}.", level="info")
             self._append_log(f"Validated managed target: {target.name}.", level="info")
-            self._append_log(
-                f"Planning backend selected: {plan.planner_name} via {selected_model.label}.",
-                level="info",
-            )
-            if plan.planner_rationale:
-                self._append_log(f"Planning rationale: {plan.planner_rationale}", level="info")
-            self._append_log(
-                f"Planned techniques: {', '.join(planned_technique_ids) if planned_technique_ids else 'none'}.",
-                level="info",
-            )
-            self._state.status = RedAgentRunStatus.RUNNING
-            self._state.message = "Red agent is executing the generated bounded attack plan."
             self._broadcast_status()
             self._thread = threading.Thread(
                 target=self._run_loop,
-                args=(run, target, plan),
+                args=(run, target, selected_model),
                 name="cyberbox-red-agent",
                 daemon=True,
             )
@@ -764,7 +968,7 @@ class RedAgentManager:
                 details={
                     "target_name": target.name,
                     "target_url": target.target_url,
-                    "planned_technique_ids": planned_technique_ids,
+                    "planned_technique_ids": [],
                 },
             )
             return RedAgentActionResponse(
@@ -785,6 +989,7 @@ class RedAgentManager:
                 self._state.message = reason
             else:
                 self._state.status = RedAgentRunStatus.STOPPED
+                self._state.runtime_phase = RedAgentRuntimePhase.STOPPED
                 self._state.message = reason
                 self._state.finished_at = utc_now()
             self._append_log(reason, level="warning")

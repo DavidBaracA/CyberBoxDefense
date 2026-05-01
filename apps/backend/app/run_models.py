@@ -74,7 +74,7 @@ class RunConfig(BaseModel):
     stop_on_first_confirmed_vulnerability: bool = False
     blue_mode: BlueMode = BlueMode.DETECT_ONLY
     red_model_id: Optional[str] = None
-    graceful_shutdown_seconds: int = Field(default=10, ge=0)
+    graceful_shutdown_seconds: int = Field(default=15, ge=0)
 
     @model_validator(mode="after")
     def validate_attack_selection(self) -> "RunConfig":

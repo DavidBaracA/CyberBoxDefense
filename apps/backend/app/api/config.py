@@ -129,7 +129,7 @@ def create_config_router(attack_types_provider, red_model_provider=None) -> APIR
             stop_on_first_confirmed_vulnerability=False,
             blue_mode=BlueMode.DETECT_ONLY,
             red_model_id="gemma3:4b",
-            graceful_shutdown_seconds=10,
+            graceful_shutdown_seconds=15,
         )
         return RunConfigContract(
             request_example={
