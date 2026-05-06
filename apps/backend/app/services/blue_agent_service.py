@@ -79,16 +79,10 @@ class UnavailableBlueAgentService:
     def model_options(self) -> list[BlueReasonerOption]:
         return [
             BlueReasonerOption(
-                model_id="gemma3:4b",
-                label="Gemma 3 4B",
-                ollama_model="gemma3:4b",
-                description="Compact local model for Blue-side telemetry classification.",
-            ),
-            BlueReasonerOption(
-                model_id="deepseek_r1_8b",
-                label="DeepSeek R1 8B",
-                ollama_model="deepseek-r1:8b",
-                description="General reasoning-focused local model for Blue-side telemetry classification.",
+                model_id="gemma3:1b",
+                label="Gemma 3 1B",
+                ollama_model="gemma3:1b",
+                description="Fast local model for lightweight Blue-side telemetry classification.",
             ),
         ]
 

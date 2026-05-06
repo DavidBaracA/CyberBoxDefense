@@ -19,10 +19,10 @@ from ...runtime_settings import get_runtime_bool, get_runtime_float, get_runtime
 
 
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
-DEFAULT_OLLAMA_MODEL = "llama3.1:8b"
+DEFAULT_OLLAMA_MODEL = "gemma3:1b"
 DEFAULT_OLLAMA_TIMEOUT_SECONDS = 120.0
 DEFAULT_OLLAMA_THINK = False
-DEFAULT_BLUE_MODEL_ID = "gemma3:4b"
+DEFAULT_BLUE_MODEL_ID = "gemma3:1b"
 
 
 @dataclass(frozen=True)
@@ -37,16 +37,10 @@ class BlueReasonerModelOption:
 
 BLUE_REASONER_MODEL_OPTIONS: tuple[BlueReasonerModelOption, ...] = (
     BlueReasonerModelOption(
-        model_id="gemma3:4b",
-        label="Gemma 3 4B",
-        ollama_model="gemma3:4b",
-        description="Compact local model for Blue-side telemetry classification.",
-    ),
-    BlueReasonerModelOption(
-        model_id="deepseek_r1_8b",
-        label="DeepSeek R1 8B",
-        ollama_model="deepseek-r1:8b",
-        description="General reasoning-focused local model for Blue-side telemetry classification.",
+        model_id="gemma3:1b",
+        label="Gemma 3 1B",
+        ollama_model="gemma3:1b",
+        description="Fast local model for lightweight Blue-side telemetry classification.",
     ),
 )
 
@@ -60,6 +54,7 @@ class BlueReasonerInput:
     recent_event_messages: list[str]
     suspicion_score: float
     evidence_event_ids: list[str]
+    available_vulnerabilities: list[dict[str, str]]
 
 
 @dataclass
@@ -70,6 +65,7 @@ class BlueReasonerResult:
     confidence: float
     evidence: list[str]
     summary: str
+    raw_response: Optional[str] = None
 
 
 class BlueReasoner(Protocol):
@@ -104,16 +100,28 @@ class HeuristicBlueReasoner:
         confidence = min(max(payload.suspicion_score, 0.15), 0.92)
         evidence = []
 
-        if "500" in lower_messages or "sql" in lower_messages or "/search" in lower_messages:
-            attack_type = "sql_injection"
+        if "xss" in lower_messages or "<script" in lower_messages or "javascript:" in lower_messages or "alert(" in lower_messages:
+            attack_type = "reflected_xss_probe"
+            confidence = max(confidence, 0.74)
+            evidence.append("Telemetry includes reflected-XSS-like markers or script-capable request patterns.")
+        elif "500" in lower_messages or "sql" in lower_messages or "/search" in lower_messages:
+            attack_type = "sql_injection_probe"
             confidence = max(confidence, 0.72)
             evidence.append("Repeated HTTP 500 responses or error-heavy search behavior observed.")
         elif "/login" in lower_messages or "401" in lower_messages or "403" in lower_messages:
-            attack_type = "credential_attack"
+            attack_type = "brute_force_login"
             confidence = max(confidence, 0.64)
             evidence.append("Authentication-related failures suggest login abuse or brute-force attempts.")
+        elif "upload" in lower_messages or "multipart" in lower_messages:
+            attack_type = "file_upload_probe"
+            confidence = max(confidence, 0.62)
+            evidence.append("Upload-oriented request patterns suggest file-handling probing.")
+        elif "redirect" in lower_messages or "return" in lower_messages or "next=" in lower_messages:
+            attack_type = "open_redirect_probe"
+            confidence = max(confidence, 0.62)
+            evidence.append("Redirect-like request parameters suggest navigation-flow probing.")
         elif "/api" in lower_messages or "container signal" in lower_messages:
-            attack_type = "api_abuse"
+            attack_type = "anomalous_web_activity"
             confidence = max(confidence, 0.61)
             evidence.append("API or service-layer anomalies indicate possible API misuse.")
         else:
@@ -125,6 +133,7 @@ class HeuristicBlueReasoner:
             confidence=min(confidence, 0.99),
             evidence=evidence,
             summary=f"Inferred {attack_type} from indirect telemetry on {payload.target_name}.",
+            raw_response=None,
         )
 
 
@@ -164,10 +173,12 @@ class OllamaBlueReasoner:
         prompt = self._build_prompt(payload)
         response_text = self._call_ollama(prompt)
         parsed = self._parse_response(response_text)
+        predicted_attack_type = self._normalize_attack_type(
+            str(parsed.get("predicted_attack_type", "anomalous_web_activity")),
+            payload,
+        )
         return BlueReasonerResult(
-            predicted_attack_type=str(
-                parsed.get("predicted_attack_type", "anomalous_web_activity")
-            ),
+            predicted_attack_type=predicted_attack_type,
             confidence=min(max(float(parsed.get("confidence", payload.suspicion_score)), 0.0), 0.99),
             evidence=[str(item) for item in parsed.get("evidence", [])][:5] or payload.recent_event_messages[:3],
             summary=str(
@@ -176,19 +187,34 @@ class OllamaBlueReasoner:
                     f"Inferred anomalous_web_activity from indirect telemetry on {payload.target_name}.",
                 )
             ),
+            raw_response=response_text,
         )
 
     def _build_prompt(self, payload: BlueReasonerInput) -> str:
         event_lines = payload.recent_event_messages[:8]
         if not event_lines:
             event_lines = ["No new event messages were observed in this cycle."]
+        vulnerability_lines = [
+            (
+                f"- {item.get('scenario_id', 'unknown')}: {item.get('display_name', 'Unknown')} "
+                f"({item.get('vulnerability_class', 'generic')}) - {item.get('description', '')}"
+            )
+            for item in payload.available_vulnerabilities
+        ]
+        if not vulnerability_lines:
+            vulnerability_lines = ["- anomalous_web_activity: Generic anomalous web activity."]
 
         return (
             "You are a Blue-team cyber defense agent in a controlled local lab. "
             "Reason only from indirect observables. Never assume access to attacker commands, "
             "payloads, or hidden ground truth. "
-            "Classify the most likely attack type using only the telemetry below.\n\n"
+            "Classify the most likely attack type using only the telemetry below. "
+            "Use one of the available vulnerability scenario ids when the evidence supports it; "
+            "otherwise use anomalous_web_activity.\n\n"
             f"Target: {payload.target_name}\n"
+            "Available vulnerability scenario ids:\n"
+            + "\n".join(vulnerability_lines)
+            + "\n\n"
             f"Anomaly summary: {payload.anomaly_summary}\n"
             f"Suspicion score: {payload.suspicion_score:.2f}\n"
             f"Evidence event ids: {', '.join(payload.evidence_event_ids) if payload.evidence_event_ids else 'none'}\n"
@@ -196,6 +222,32 @@ class OllamaBlueReasoner:
             + "\n".join(f"- {line}" for line in event_lines)
             + "\n\nReturn strict JSON with keys: predicted_attack_type, confidence, summary, evidence."
         )
+
+    def _normalize_attack_type(self, predicted: str, payload: BlueReasonerInput) -> str:
+        allowed = {
+            str(item.get("scenario_id", "")).strip()
+            for item in payload.available_vulnerabilities
+            if str(item.get("scenario_id", "")).strip()
+        }
+        allowed.add("anomalous_web_activity")
+        cleaned = predicted.strip()
+        if cleaned in allowed:
+            return cleaned
+        lowered = cleaned.lower()
+        aliases = {
+            "sql_injection": "sql_injection_probe",
+            "sqli": "sql_injection_probe",
+            "xss": "reflected_xss_probe",
+            "reflected_xss": "reflected_xss_probe",
+            "credential_attack": "brute_force_login",
+            "brute_force": "brute_force_login",
+            "file_upload": "file_upload_probe",
+            "open_redirect": "open_redirect_probe",
+        }
+        mapped = aliases.get(lowered)
+        if mapped in allowed:
+            return mapped
+        return "anomalous_web_activity"
 
     def _call_ollama(self, prompt: str) -> str:
         payload = {
@@ -297,6 +349,7 @@ class FallbackBlueReasoner:
                 confidence=result.confidence,
                 evidence=evidence[:5],
                 summary=result.summary,
+                raw_response=result.raw_response,
             )
 
 

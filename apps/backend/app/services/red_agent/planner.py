@@ -166,6 +166,9 @@ class AttackPlanner:
                     rationale=recommendation.get("rationale"),
                     confidence=float(recommendation.get("confidence", 0.0)),
                     target_page_url=recommendation.get("page_url"),
+                    pre_action_selector=recommendation.get("pre_action_selector"),
+                    target_selector=recommendation.get("target_selector"),
+                    target_parameter=recommendation.get("target_parameter"),
                     supporting_signals=list(recommendation.get("supporting_signals", [])),
                 )
             )
@@ -216,7 +219,10 @@ class AttackPlanner:
                 candidate = {
                     "confidence": recommendation.confidence,
                     "rationale": recommendation.rationale,
-                    "page_url": page.page_url,
+                    "page_url": recommendation.target_page_url or page.page_url,
+                    "pre_action_selector": recommendation.pre_action_selector,
+                    "target_selector": recommendation.target_selector,
+                    "target_parameter": recommendation.target_parameter,
                     "supporting_signals": recommendation.supporting_signals,
                 }
                 if current is None or float(candidate["confidence"]) > float(current["confidence"]):

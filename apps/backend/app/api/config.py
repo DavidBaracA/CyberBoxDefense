@@ -121,6 +121,8 @@ def create_config_router(attack_types_provider, red_model_provider=None) -> APIR
         default_attack_type = (
             [default_attack_types[0].attack_type] if default_attack_types else []
         )
+        red_model_options = build_red_model_options()
+        default_red_model_id = red_model_options[0].value if red_model_options else None
         default_config = RunConfig(
             duration_seconds=default_duration,
             enabled_attack_types=default_attack_type,
@@ -128,7 +130,7 @@ def create_config_router(attack_types_provider, red_model_provider=None) -> APIR
             attack_depth=AttackDepth.BALANCED,
             stop_on_first_confirmed_vulnerability=False,
             blue_mode=BlueMode.DETECT_ONLY,
-            red_model_id="gemma3:4b",
+            red_model_id=default_red_model_id,
             graceful_shutdown_seconds=15,
         )
         return RunConfigContract(
@@ -141,7 +143,7 @@ def create_config_router(attack_types_provider, red_model_provider=None) -> APIR
             attack_types=default_attack_types,
             attack_depths=build_attack_depth_options(),
             blue_modes=build_blue_mode_options(),
-            red_models=build_red_model_options(),
+            red_models=red_model_options,
             validation_notes=[
                 "duration_seconds must be greater than 0.",
                 "When try_all_available is false, enabled_attack_types must contain at least one attack type.",

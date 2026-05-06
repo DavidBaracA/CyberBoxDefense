@@ -37,11 +37,6 @@ ATTACK_LABEL_ALIASES: dict[str, str] = {
     "repeated_internal_error_burst": "internal_error_burst",
 }
 NON_EVALUATED_ATTACK_LABELS = {
-    "brute_force_login",
-    "sql_injection_probe",
-    "reflected_xss_probe",
-    "file_upload_probe",
-    "open_redirect_probe",
 }
 
 

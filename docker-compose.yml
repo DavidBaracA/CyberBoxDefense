@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   backend:
     build:
@@ -13,8 +11,6 @@ services:
       - ./data/evaluation_ground_truth:/workspace/data/evaluation_ground_truth
     ports:
       - "8000:8000"
-    depends_on:
-      - vulnerable_app
 
   frontend:
     build:
@@ -26,11 +22,3 @@ services:
       - "5173:5173"
     depends_on:
       - backend
-
-  vulnerable_app:
-    build:
-      context: .
-      dockerfile: infra/docker/vulnerable_app.Dockerfile
-    ports:
-      - "8081:8081"
-

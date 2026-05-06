@@ -49,7 +49,11 @@ class PageAnalyzer:
         raw = self._run_playwright_analyzer(target=target, run_id=run_id)
         scenario_catalog = get_scenario_catalog()
         heuristic_elements = self._build_elements(raw.get("candidate_elements", []))
-        scenario_recommendations: list[ScenarioRecommendation] = []
+        scenario_recommendations = self._build_recommendations(
+            raw.get("recommended_scenarios", []),
+            scenario_catalog,
+            source="dom_heuristic",
+        )
 
         page_type = str(raw.get("page_type") or "unknown")
         analyzer_name = "dom_heuristic"
@@ -80,10 +84,14 @@ class PageAnalyzer:
             analyzer_name = self._vision_reasoner.name
             rationale_parts.append(vision_decision.rationale)
             heuristic_elements = self._merge_elements(heuristic_elements, vision_decision.candidate_elements)
-            scenario_recommendations = self._build_recommendations(
+            vision_recommendations = self._build_recommendations(
                 vision_decision.recommended_scenarios,
                 scenario_catalog,
                 source=self._vision_reasoner.name,
+            )
+            scenario_recommendations = self._merge_recommendations(
+                scenario_recommendations,
+                vision_recommendations,
             )
         except Exception as exc:
             raise RuntimeError(
@@ -213,6 +221,10 @@ class PageAnalyzer:
                     supporting_signals=self._as_string_list(row.get("supporting_signals")),
                     candidate_element_ids=self._as_string_list(row.get("candidate_element_ids")),
                     bounded_action_summary=self._as_optional_text(row.get("bounded_action_summary")),
+                    target_page_url=self._as_optional_text(row.get("target_page_url")),
+                    pre_action_selector=self._as_optional_text(row.get("pre_action_selector")),
+                    target_selector=self._as_optional_text(row.get("target_selector")),
+                    target_parameter=self._as_optional_text(row.get("target_parameter")),
                 )
             )
         return recommendations
@@ -270,6 +282,14 @@ class PageAnalyzer:
                 previous.rationale = f"{previous.rationale} {item.rationale}".strip()
             if not previous.bounded_action_summary and item.bounded_action_summary:
                 previous.bounded_action_summary = item.bounded_action_summary
+            if not previous.target_page_url and item.target_page_url:
+                previous.target_page_url = item.target_page_url
+            if not previous.pre_action_selector and item.pre_action_selector:
+                previous.pre_action_selector = item.pre_action_selector
+            if not previous.target_selector and item.target_selector:
+                previous.target_selector = item.target_selector
+            if not previous.target_parameter and item.target_parameter:
+                previous.target_parameter = item.target_parameter
         return sorted(merged.values(), key=lambda item: (-item.confidence, item.scenario_id))
 
     def _artifact_url_for_path(self, artifact_path: str) -> str:

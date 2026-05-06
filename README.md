@@ -2,9 +2,9 @@
 
 CyberBoxDefense is a local MSc thesis prototype for autonomous cyber defense in a controlled cyber range. This first iteration provides a minimal monorepo scaffold with:
 
-- a vulnerable target container
 - a FastAPI backend for telemetry, detections, ground-truth storage, and metrics
-- placeholder Red and Blue agents
+- managed vulnerable-app deployment templates
+- Red and Blue agent services
 - a React dashboard for a quick demo
 
 The architecture intentionally separates runtime observability from offline evaluation ground truth:
@@ -17,8 +17,7 @@ The architecture intentionally separates runtime observability from offline eval
 ```text
 .
 ├── agents/
-│   ├── blue_agent/
-│   └── red_agent/
+│   └── blue_agent/
 ├── apps/
 │   ├── backend/
 │   └── frontend/
@@ -28,10 +27,8 @@ The architecture intentionally separates runtime observability from offline eval
 │   └── docker/
 ├── logs/
 │   └── observability/
-├── shared/
-│   └── python/
-└── targets/
-    └── vulnerable_app/
+└── shared/
+    └── python/
 ```
 
 ## Architecture Notes
@@ -66,7 +63,6 @@ Services:
 
 - Backend: `http://localhost:8000`
 - Frontend: `http://localhost:5173`
-- Vulnerable app: `http://localhost:8081`
 
 ### Option 2: Run Locally
 
@@ -102,22 +98,6 @@ If multiple vulnerable apps are running, pick one explicitly:
 
 ```bash
 CYBERBOX_TARGET_APP_ID=<running-app-id> npm run test:e2e
-```
-
-Vulnerable app:
-
-```bash
-cd targets/vulnerable_app
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python app.py
-```
-
-Red agent scaffolding:
-
-```bash
-PYTHONPATH=shared/python python -m agents.red_agent.main
 ```
 
 Blue agent placeholder:
@@ -244,7 +224,7 @@ For a lower-level manual check of the analyzer runner:
 ```bash
 cd apps/frontend
 npx playwright install chromium
-CYBERBOX_TARGET_URL=http://localhost:8081 \
+CYBERBOX_TARGET_URL=http://localhost:<deployed-target-port> \
 CYBERBOX_TARGET_TEMPLATE=dvwa \
 CYBERBOX_RUN_ID=manual \
 node tests/e2e/helpers/analyzeManagedPage.mjs
@@ -255,11 +235,11 @@ repo-local debugging of the analyzer helper.
 
 ## Demo Flow
 
-1. Start backend, frontend, and vulnerable app.
-2. Open the dashboard at `http://localhost:5173`.
-3. The backend seeds demo observability, ground truth, and a sample detection on startup.
-4. Optionally run the Red agent placeholder to trigger the target and submit additional records.
-5. Optionally run the Blue agent placeholder to read indirect telemetry and publish heuristic detections.
+1. Start backend and frontend.
+2. Deploy a vulnerable app from the dashboard.
+3. Open the dashboard at `http://localhost:5173`.
+4. The backend seeds demo observability, ground truth, and a sample detection on startup.
+5. Start an experiment run from the dashboard to launch Red and Blue agent workflows.
 
 ## Component Interfaces
 

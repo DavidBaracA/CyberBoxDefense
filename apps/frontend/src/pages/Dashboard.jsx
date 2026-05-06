@@ -132,6 +132,34 @@ function extractOllamaDebugEntry(payload) {
   return null;
 }
 
+function isBlueDebugEntry(entry) {
+  return entry?.source === "ws-blue" || entry?.payload?.includes('"blue_raw_response"');
+}
+
+function AgentDebugConsole({ title, entries, emptyText }) {
+  return (
+    <div className="agent-debug-column">
+      <h3>{title}</h3>
+      <div className="agent-debug-console">
+        {entries.length === 0 ? (
+          <div className="empty-state">{emptyText}</div>
+        ) : (
+          entries.map((entry) => (
+            <article key={entry.entryId} className="agent-debug-entry">
+              <div className="agent-debug-meta">
+                <strong>{entry.label}</strong>
+                <span>{entry.source}</span>
+                <span>{new Date(entry.timestamp).toLocaleTimeString()}</span>
+              </div>
+              <pre className="agent-debug-payload">{entry.payload}</pre>
+            </article>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [state, setState] = useState(initialState);
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
@@ -143,7 +171,7 @@ export default function Dashboard() {
   const [isActingOnApp, setIsActingOnApp] = useState(false);
   const [blueAgentError, setBlueAgentError] = useState("");
   const [blueModelOptions, setBlueModelOptions] = useState([]);
-  const [selectedBlueModelId, setSelectedBlueModelId] = useState("gemma3:4b");
+  const [selectedBlueModelId, setSelectedBlueModelId] = useState("gemma3:1b");
   const [isStartingBlueAgent, setIsStartingBlueAgent] = useState(false);
   const [isStoppingBlueAgent, setIsStoppingBlueAgent] = useState(false);
   const [blueAgentStreamState, setBlueAgentStreamState] = useState("connecting");
@@ -389,6 +417,11 @@ export default function Dashboard() {
           return;
         }
 
+        if (payload?.type === "debug" && payload.entry) {
+          appendAgentDebug("ws-blue", "debug", payload.entry);
+          return;
+        }
+
         if (payload?.type === "status" && payload.state) {
           appendAgentDebug("ws-blue", "status", payload.state);
           setState((current) => ({
@@ -536,6 +569,8 @@ export default function Dashboard() {
     state.metrics?.telemetry_event_count ?? state.telemetry.length ?? 0;
   const detectionCount =
     state.metrics?.detection_count ?? state.detections.length ?? 0;
+  const blueDebugEntries = agentDebugEntries.filter(isBlueDebugEntry);
+  const redDebugEntries = agentDebugEntries.filter((entry) => !isBlueDebugEntry(entry));
   const hasRunningTarget = state.vulnerableApps.some((app) => app?.status === "running");
 
   return (
@@ -618,7 +653,7 @@ export default function Dashboard() {
           <div>
             <h2>Agent Debug</h2>
             <p className="panel-copy">
-              Raw Ollama planner responses and planning errors captured from the Red-agent stream.
+              Raw Ollama responses and reasoning errors captured from the Red and Blue streams.
             </p>
           </div>
           <button
@@ -629,21 +664,17 @@ export default function Dashboard() {
             Clear Debug Log
           </button>
         </div>
-        <div className="agent-debug-console">
-          {agentDebugEntries.length === 0 ? (
-            <div className="empty-state">No Ollama planner debug events captured yet.</div>
-          ) : (
-            agentDebugEntries.map((entry) => (
-              <article key={entry.entryId} className="agent-debug-entry">
-                <div className="agent-debug-meta">
-                  <strong>{entry.label}</strong>
-                  <span>{entry.source}</span>
-                  <span>{new Date(entry.timestamp).toLocaleTimeString()}</span>
-                </div>
-                <pre className="agent-debug-payload">{entry.payload}</pre>
-              </article>
-            ))
-          )}
+        <div className="agent-debug-grid">
+          <AgentDebugConsole
+            title="Red Agent"
+            entries={redDebugEntries}
+            emptyText="No Red raw model responses captured yet."
+          />
+          <AgentDebugConsole
+            title="Blue Agent"
+            entries={blueDebugEntries}
+            emptyText="No Blue raw model responses captured yet."
+          />
         </div>
       </section>
 

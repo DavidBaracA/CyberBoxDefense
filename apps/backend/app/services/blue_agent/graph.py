@@ -6,6 +6,7 @@ from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
+from ..red_agent.scenarios import get_scenario_catalog
 from .reasoner import BlueReasoner, BlueReasonerInput
 from .state import BlueAgentGraphState
 from .telemetry_adapter import BlueTelemetryAdapter
@@ -24,6 +25,16 @@ def build_blue_agent_graph(
     """
 
     builder = StateGraph(BlueAgentGraphState)
+    available_vulnerabilities = [
+        {
+            "scenario_id": scenario.scenario_id,
+            "display_name": scenario.display_name,
+            "description": scenario.description,
+            "vulnerability_class": scenario.vulnerability_class,
+        }
+        for scenario in get_scenario_catalog()
+        if scenario.enabled
+    ]
 
     def initialize_context(state: BlueAgentGraphState) -> BlueAgentGraphState:
         iteration = int(state.get("iteration_count", 0)) + 1
@@ -174,6 +185,7 @@ def build_blue_agent_graph(
                 recent_event_messages=message_samples,
                 suspicion_score=float(state.get("suspicion_score", 0.0)),
                 evidence_event_ids=list(state.get("new_evidence_event_ids", [])),
+                available_vulnerabilities=available_vulnerabilities,
             )
         )
         level = "warning" if reasoner_result.confidence >= 0.65 else "info"
@@ -211,6 +223,7 @@ def build_blue_agent_graph(
             "predicted_attack_type": reasoner_result.predicted_attack_type,
             "confidence": round(reasoner_result.confidence, 2),
             "evidence": reasoner_result.evidence,
+            "blue_raw_response": reasoner_result.raw_response,
             "cycle_terminal_lines": lines,
         }
 

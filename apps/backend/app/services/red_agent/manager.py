@@ -46,6 +46,7 @@ from .reasoner import (
 )
 from .scenarios import get_scenario, get_scenario_catalog
 from .session_history import RedAgentSessionHistoryStore
+from .vision_reasoner import SessionConclusionInput, build_session_conclusion_reasoner
 
 
 def utc_now() -> datetime:
@@ -379,6 +380,9 @@ class RedAgentManager:
         target: VulnerableAppDetail,
         scenario_id: str,
         target_page_url: Optional[str] = None,
+        pre_action_selector: Optional[str] = None,
+        target_selector: Optional[str] = None,
+        target_parameter: Optional[str] = None,
     ) -> dict[str, object]:
         repo_root = Path(__file__).resolve().parents[5]
         frontend_dir = repo_root / "apps" / "frontend"
@@ -393,6 +397,9 @@ class RedAgentManager:
                 "CYBERBOX_RUN_ID": run_id,
                 "CYBERBOX_OUTPUT_DIR": str(output_dir),
                 "CYBERBOX_TARGET_PAGE_URL": target_page_url or target.target_url,
+                "CYBERBOX_PRE_ACTION_SELECTOR": pre_action_selector or "",
+                "CYBERBOX_TARGET_SELECTOR": target_selector or "",
+                "CYBERBOX_TARGET_PARAMETER": target_parameter or "",
             }
         )
         timeout_seconds = get_runtime_float(
@@ -492,12 +499,98 @@ class RedAgentManager:
                         "timestamp": utc_now().isoformat(),
                     }
                 )
+            if analysis.rationale:
+                self._append_log(
+                    f"LLM screenshot rationale for {analysis.page_url}: {analysis.rationale}",
+                    level="info",
+                )
             if analysis.recommended_scenarios:
                 summary = ", ".join(
                     f"{item.scenario_id} ({item.confidence:.2f})"
                     for item in analysis.recommended_scenarios
                 )
                 self._append_log(f"Applicable scenarios: {summary}.", level="info")
+
+    def _append_session_conclusion(
+        self,
+        *,
+        target: VulnerableAppDetail,
+        plan: AttackExecutionPlan,
+        termination_reason: Optional[RunTerminationReason],
+    ) -> None:
+        session = self._current_session
+        if session is None:
+            return
+        try:
+            analyzed_pages = [
+                {
+                    "page_url": analysis.page_url,
+                    "page_type": analysis.page_type,
+                    "confidence": analysis.confidence,
+                    "rationale": analysis.rationale,
+                    "recommended_scenarios": [
+                        {
+                            "scenario_id": recommendation.scenario_id,
+                            "confidence": recommendation.confidence,
+                            "rationale": recommendation.rationale,
+                            "supporting_signals": recommendation.supporting_signals,
+                        }
+                        for recommendation in analysis.recommended_scenarios
+                    ],
+                }
+                for analysis in plan.analyzed_pages
+            ]
+            vulnerabilities = [
+                {
+                    "type": vulnerability.type,
+                    "title": vulnerability.title,
+                    "severity": vulnerability.severity,
+                    "location": vulnerability.location,
+                    "evidence": vulnerability.evidence,
+                }
+                for vulnerability in session.vulnerabilities
+            ]
+            reasoner = build_session_conclusion_reasoner()
+            decision = reasoner.summarize_session(
+                SessionConclusionInput(
+                    target_name=target.name,
+                    target_url=target.target_url,
+                    status=self._state.status.value,
+                    termination_reason=termination_reason.value if termination_reason else "unknown",
+                    analyzed_pages=analyzed_pages,
+                    completed_techniques=list(self._state.completed_techniques),
+                    vulnerabilities=vulnerabilities,
+                    screenshot_count=len(session.screenshots),
+                )
+            )
+            session.summary = decision.conclusion
+            session.metadata.update(
+                {
+                    "session_conclusion": decision.conclusion,
+                    "session_conclusion_rationale": decision.rationale,
+                    "session_conclusion_observations": decision.key_observations,
+                    "session_conclusion_reasoner": reasoner.name,
+                }
+            )
+            self._append_log(f"LLM session conclusion: {decision.conclusion}", level="info")
+            if decision.rationale:
+                self._append_log(f"Conclusion rationale: {decision.rationale}", level="info")
+            if decision.key_observations:
+                self._append_log(
+                    "Key observations: " + "; ".join(decision.key_observations),
+                    level="info",
+                )
+            if decision.raw_response:
+                self._append_debug_event(
+                    {
+                        "level": "info",
+                        "type": "session_conclusion_raw_response",
+                        "raw_response": decision.raw_response,
+                        "timestamp": utc_now().isoformat(),
+                    }
+                )
+        except Exception as exc:
+            self._append_log(f"LLM session conclusion failed: {exc}", level="warning")
 
     def _apply_planned_execution_state(
         self,
@@ -625,12 +718,15 @@ class RedAgentManager:
     def _finalize_session(self) -> None:
         if self._current_session is None or self._session_history_store is None:
             return
+        session_summary = str(
+            self._current_session.metadata.get("session_conclusion") or self._state.message
+        )
         finalized = self._current_session.model_copy(
             update={
                 "ended_at": self._state.finished_at or utc_now(),
                 "status": self._state.status,
                 "completed_techniques": list(self._state.completed_techniques),
-                "summary": self._state.message,
+                "summary": session_summary,
                 "metadata": {
                     **self._current_session.metadata,
                     "run_id": self._state.run_id,
@@ -654,6 +750,15 @@ class RedAgentManager:
                 f"Planner selected page {technique.target_page_url} with confidence {technique.confidence:.2f}.",
                 level="info",
             )
+        if technique.pre_action_selector or technique.target_selector or technique.target_parameter:
+            hint_parts = []
+            if technique.pre_action_selector:
+                hint_parts.append(f"pre-action {technique.pre_action_selector}")
+            if technique.target_selector:
+                hint_parts.append(f"selector {technique.target_selector}")
+            if technique.target_parameter:
+                hint_parts.append(f"parameter {technique.target_parameter}")
+            self._append_log(f"Planner suggested target hint: {', '.join(hint_parts)}.", level="info")
         if technique.rationale:
             self._append_log(f"Technique rationale: {technique.rationale}", level="info")
         self._record_ground_truth(run_id, target, scenario_id, "started", {"path": target.target_url})
@@ -668,6 +773,9 @@ class RedAgentManager:
             target,
             scenario_id,
             target_page_url=technique.target_page_url,
+            pre_action_selector=technique.pre_action_selector,
+            target_selector=technique.target_selector,
+            target_parameter=technique.target_parameter,
         )
         self._append_log(result.get("summary", "Browser scenario completed."), level="info")
         screenshot_path = result.get("screenshot_path")
@@ -844,6 +952,11 @@ class RedAgentManager:
                     self._state.message = "Red agent completed the planned techniques."
                 self._state.finished_at = utc_now()
                 self._state.remaining_time_budget_seconds = self._remaining_budget_seconds(run)
+            self._append_session_conclusion(
+                target=target,
+                plan=plan,
+                termination_reason=termination_reason,
+            )
             self._append_log("Attack run finished.", level="info")
             self._broadcast_status()
         except Exception as exc:

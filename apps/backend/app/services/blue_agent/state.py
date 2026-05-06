@@ -47,6 +47,7 @@ class BlueAgentGraphState(TypedDict, total=False):
     predicted_attack_type: str
     confidence: float
     evidence: list[str]
+    blue_raw_response: Optional[str]
     last_detection: Optional[BlueDetectionCandidate]
     cycle_terminal_lines: list[BlueTerminalLine]
     iteration_count: int

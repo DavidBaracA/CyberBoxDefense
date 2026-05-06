@@ -41,6 +41,7 @@ async function extractCandidateElements(page) {
 
     const signalList = (values) => values.filter(Boolean);
     const cleanText = (value) => String(value || "").replace(/\s+/g, " ").trim().slice(0, 200);
+    const cssString = (value) => String(value || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
     const locatorHint = (node) => {
       if (!node) {
         return "";
@@ -48,12 +49,16 @@ async function extractCandidateElements(page) {
       if (node.id) {
         return `#${node.id}`;
       }
+      const ariaLabel = node.getAttribute("aria-label");
+      if (ariaLabel) {
+        return `${node.tagName.toLowerCase()}[aria-label="${cssString(ariaLabel)}"]`;
+      }
       if (node.name) {
-        return `${node.tagName.toLowerCase()}[name="${node.name}"]`;
+        return `${node.tagName.toLowerCase()}[name="${cssString(node.name)}"]`;
       }
       const role = node.getAttribute("role");
       if (role) {
-        return `${node.tagName.toLowerCase()}[role="${role}"]`;
+        return `${node.tagName.toLowerCase()}[role="${cssString(role)}"]`;
       }
       return node.tagName.toLowerCase();
     };
@@ -67,11 +72,12 @@ async function extractCandidateElements(page) {
         node.getAttribute("id") ||
         "";
       const text = cleanText(label);
+      const lowerText = text.toLowerCase();
       const signals = signalList([
         inputType === "password" ? "password_field" : "",
         inputType === "file" ? "file_input" : "",
-        /search|query/.test(text) ? "search_field" : "",
-        /user|email|login/.test(text) ? "username_field" : "",
+        /search|query/.test(lowerText) ? "search_field" : "",
+        /user|email|login/.test(lowerText) ? "username_field" : "",
         node.tagName.toLowerCase() === "textarea" ? "textarea" : "",
         "form_input",
       ]);
@@ -88,16 +94,19 @@ async function extractCandidateElements(page) {
     collect("button, input[type='submit'], a", 24, (node) => {
       const text = cleanText(node.innerText || node.value || node.getAttribute("aria-label") || "");
       const href = node.getAttribute("href") || "";
+      const ariaLabel = cleanText(node.getAttribute("aria-label") || "");
+      const combinedText = cleanText(`${text} ${ariaLabel}`);
+      const lowerCombinedText = combinedText.toLowerCase();
       const signals = signalList([
-        /login|sign in|account/.test(text) ? "login_navigation" : "",
-        /upload|attach/.test(text) ? "upload_button" : "",
-        /continue|redirect|return/.test(text) ? "redirect_navigation" : "",
-        /search|find/.test(text) ? "search_submit" : "",
+        /login|sign in|account/.test(lowerCombinedText) ? "login_navigation" : "",
+        /upload|attach/.test(lowerCombinedText) ? "upload_button" : "",
+        /continue|redirect|return/.test(lowerCombinedText) ? "redirect_navigation" : "",
+        /search|find/.test(lowerCombinedText) ? "search_reveal_or_submit" : "",
         href.includes("redirect") || href.includes("return") || href.includes("next=") ? "redirect_link" : "",
       ]);
       return {
         element_kind: node.tagName.toLowerCase() === "a" ? "link" : "button",
-        text,
+        text: combinedText,
         locator_hint: locatorHint(node),
         href: href || undefined,
         confidence: signals.length >= 1 ? 0.7 : 0.4,
@@ -118,7 +127,13 @@ function buildHeuristicAnalysis({ pageUrl, title, bodyText, candidateElements, l
 
   const hasPassword = inputSignals.includes("password_field");
   const hasUserField = inputSignals.includes("username_field");
-  const hasSearch = inputSignals.includes("search_field") || /search|query|find/.test(lowerText);
+  const searchReveal = candidateElements.find((item) =>
+    (item.signals || []).includes("search_reveal_or_submit")
+  );
+  const hasSearch =
+    inputSignals.includes("search_field") ||
+    Boolean(searchReveal) ||
+    /search|query|find/.test(lowerText);
   const hasFileUpload = inputSignals.includes("file_input") || /upload|attachment|avatar/.test(lowerText);
   const hasRedirect =
     lowerLinks.some((item) => /redirect|return|next=|url=|continue/.test(item)) ||
@@ -151,6 +166,7 @@ function buildHeuristicAnalysis({ pageUrl, title, bodyText, candidateElements, l
       rationale: "Detected search or query-oriented inputs that could support bounded SQLi targeting.",
       source: "dom_heuristic",
       supporting_signals: ["query_form", "search_field"],
+      pre_action_selector: searchReveal?.locator_hint || undefined,
     });
     recommendations.push({
       scenario_id: "reflected_xss_probe",
@@ -158,6 +174,7 @@ function buildHeuristicAnalysis({ pageUrl, title, bodyText, candidateElements, l
       rationale: "Detected text input surfaces likely to reflect user-supplied content or results.",
       source: "dom_heuristic",
       supporting_signals: ["form_page", "text_input", "search_field"],
+      pre_action_selector: searchReveal?.locator_hint || undefined,
     });
   }
 
@@ -195,6 +212,7 @@ function buildHeuristicAnalysis({ pageUrl, title, bodyText, candidateElements, l
       has_password_input: hasPassword,
       has_username_input: hasUserField,
       has_search_surface: hasSearch,
+      search_reveal_selector: searchReveal?.locator_hint || null,
       has_file_upload_surface: hasFileUpload,
       has_redirect_signal: hasRedirect,
       candidate_element_count: candidateElements.length,
@@ -243,6 +261,7 @@ async function analyzePage({ targetUrl, templateId, outputDir, runId }) {
       body_text_excerpt: bodyText,
       link_hrefs: linkHrefs.slice(0, 24),
       form_actions: formActions.slice(0, 12),
+      candidate_elements: candidateElements.slice(0, 24),
       input_count: candidateElements.filter((item) => item.element_kind === "input" || item.element_kind === "file_input").length,
       button_count: candidateElements.filter((item) => item.element_kind === "button").length,
       link_count: candidateElements.filter((item) => item.element_kind === "link").length,

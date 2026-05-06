@@ -81,6 +81,9 @@ class AttackTechniquePlan(BaseModel):
     rationale: Optional[str] = None
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     target_page_url: Optional[str] = None
+    pre_action_selector: Optional[str] = None
+    target_selector: Optional[str] = None
+    target_parameter: Optional[str] = None
     supporting_signals: list[str] = Field(default_factory=list)
 
 
@@ -119,6 +122,10 @@ class ScenarioRecommendation(BaseModel):
     supporting_signals: list[str] = Field(default_factory=list)
     candidate_element_ids: list[str] = Field(default_factory=list)
     bounded_action_summary: Optional[str] = None
+    target_page_url: Optional[str] = None
+    pre_action_selector: Optional[str] = None
+    target_selector: Optional[str] = None
+    target_parameter: Optional[str] = None
 
 
 class PageAnalysisEvidence(BaseModel):

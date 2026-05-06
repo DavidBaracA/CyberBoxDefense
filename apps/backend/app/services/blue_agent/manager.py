@@ -176,6 +176,15 @@ class LangGraphBlueAgentManager:
             )
         )
 
+    def _append_debug_event(self, payload: dict[str, object]) -> None:
+        self._broadcast_stream_event(
+            self._stream_event(
+                "debug_event",
+                payload,
+                legacy={"type": "debug", "entry": payload},
+            )
+        )
+
     def _broadcast_stream_event(self, event: dict[str, object]) -> None:
         with self._stream_lock:
             subscribers = list(self._stream_subscribers.items())
@@ -378,6 +387,16 @@ class LangGraphBlueAgentManager:
         result = self._graph.invoke(self._graph_state)
         self._graph_state = dict(result)
         self._emit_cycle_logs(list(self._graph_state.get("cycle_terminal_lines", [])))
+        raw_response = self._graph_state.get("blue_raw_response")
+        if raw_response:
+            self._append_debug_event(
+                {
+                    "level": "info",
+                    "type": "blue_raw_response",
+                    "raw_response": str(raw_response),
+                    "timestamp": utc_now().isoformat(),
+                }
+            )
         fallback_error = getattr(self._reasoner, "last_error", None)
         if fallback_error:
             self._append_log(

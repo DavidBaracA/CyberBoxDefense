@@ -22,7 +22,7 @@ DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 DEFAULT_OLLAMA_TIMEOUT_SECONDS = 120.0
 DEFAULT_OLLAMA_THINK = False
 DEFAULT_OLLAMA_NUM_PREDICT = 128
-DEFAULT_RED_MODEL_ID = "gemma3:4b"
+DEFAULT_RED_MODEL_ID = "qwen3-vl:235b-cloud"
 
 
 @dataclass(frozen=True)
@@ -36,6 +36,12 @@ class RedPlanningModelOption:
 
 
 RED_PLANNING_MODEL_OPTIONS: tuple[RedPlanningModelOption, ...] = (
+    RedPlanningModelOption(
+        model_id="qwen3-vl:235b-cloud",
+        label="Qwen3-VL 235B Cloud",
+        ollama_model="qwen3-vl:235b-cloud",
+        description="Ollama Cloud planner for bounded Red scenario ordering.",
+    ),
     RedPlanningModelOption(
         model_id="gemma3:4b",
         label="Gemma 3 4B",

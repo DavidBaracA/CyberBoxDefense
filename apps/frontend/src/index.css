@@ -200,6 +200,18 @@ h2 {
   margin-bottom: 1rem;
 }
 
+.agent-debug-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.agent-debug-column h3 {
+  margin: 0 0 0.55rem;
+  color: #d7edf9;
+  font-size: 0.95rem;
+}
+
 .agent-debug-console {
   max-height: 24rem;
   overflow-y: auto;
@@ -233,6 +245,12 @@ h2 {
   color: #cfe7f8;
   font-size: 0.82rem;
   line-height: 1.5;
+}
+
+@media (max-width: 860px) {
+  .agent-debug-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .table-error-detail {

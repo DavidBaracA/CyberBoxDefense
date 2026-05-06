@@ -24,6 +24,18 @@ export default function MetricsPanel({ metrics }) {
 
       <div className="metrics-list">
         <div className="metric-row">
+          <span>Telemetry Events</span>
+          <strong>{formatMetric(snapshot.telemetry_event_count)}</strong>
+        </div>
+        <div className="metric-row">
+          <span>Blue Detections</span>
+          <strong>{formatMetric(snapshot.detection_count)}</strong>
+        </div>
+        <div className="metric-row">
+          <span>Evaluated Attacks</span>
+          <strong>{formatMetric(snapshot.attack_ground_truth_count)}</strong>
+        </div>
+        <div className="metric-row">
           <span>MTTD</span>
           <strong>{formatMetric(snapshot.mean_time_to_detection_seconds, " s")}</strong>
         </div>

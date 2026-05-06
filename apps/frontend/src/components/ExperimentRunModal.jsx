@@ -41,7 +41,7 @@ export default function ExperimentRunModal({
   const [attackDepth, setAttackDepth] = useState("balanced");
   const [stopOnFirstConfirmed, setStopOnFirstConfirmed] = useState(false);
   const [blueMode, setBlueMode] = useState("detect_only");
-  const [redModelId, setRedModelId] = useState("gemma3:4b");
+  const [redModelId, setRedModelId] = useState("");
   const [validationError, setValidationError] = useState("");
   const wasOpenRef = useRef(false);
 
@@ -66,7 +66,7 @@ export default function ExperimentRunModal({
       Boolean(defaultConfig.stop_on_first_confirmed_vulnerability ?? false)
     );
     setBlueMode(defaultConfig.blue_mode || blueModeOptions[0]?.value || "detect_only");
-    setRedModelId(defaultConfig.red_model_id || redModelOptions[0]?.value || "gemma3:4b");
+    setRedModelId(defaultConfig.red_model_id || redModelOptions[0]?.value || "");
     setValidationError("");
   }, [
     isOpen,
@@ -82,6 +82,10 @@ export default function ExperimentRunModal({
   const selectedDurationOption = useMemo(
     () => durationOptions.find((option) => option.value === durationSeconds),
     [durationOptions, durationSeconds]
+  );
+  const selectedRedModelOption = useMemo(
+    () => redModelOptions.find((option) => option.value === redModelId),
+    [redModelOptions, redModelId]
   );
 
   if (!isOpen) {
@@ -119,7 +123,7 @@ export default function ExperimentRunModal({
         attack_depth: attackDepth || defaultConfig.attack_depth || "balanced",
         stop_on_first_confirmed_vulnerability: stopOnFirstConfirmed,
         blue_mode: blueMode || defaultConfig.blue_mode || "detect_only",
-        red_model_id: redModelId || defaultConfig.red_model_id || "gemma3:4b",
+        red_model_id: redModelId || defaultConfig.red_model_id || redModelOptions[0]?.value || null,
         graceful_shutdown_seconds: defaultConfig.graceful_shutdown_seconds ?? 10,
       },
     });
@@ -225,6 +229,9 @@ export default function ExperimentRunModal({
                   </option>
                 ))}
               </select>
+              {selectedRedModelOption?.description ? (
+                <small className="helper-copy">{selectedRedModelOption.description}</small>
+              ) : null}
             </label>
 
             <label className="toggle-field">
