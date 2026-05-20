@@ -45,8 +45,17 @@ class PageAnalyzer:
         *,
         target: VulnerableAppDetail,
         run_id: str,
+        target_url: Optional[str] = None,
+        storage_state_path: Optional[str] = None,
+        analysis_label: str = "page-analysis",
     ) -> RedAgentPageAnalysis:
-        raw = self._run_playwright_analyzer(target=target, run_id=run_id)
+        raw = self._run_playwright_analyzer(
+            target=target,
+            run_id=run_id,
+            target_url=target_url,
+            storage_state_path=storage_state_path,
+            analysis_label=analysis_label,
+        )
         scenario_catalog = get_scenario_catalog()
         heuristic_elements = self._build_elements(raw.get("candidate_elements", []))
         scenario_recommendations = self._build_recommendations(
@@ -126,6 +135,9 @@ class PageAnalyzer:
         *,
         target: VulnerableAppDetail,
         run_id: str,
+        target_url: Optional[str] = None,
+        storage_state_path: Optional[str] = None,
+        analysis_label: str = "page-analysis",
     ) -> dict[str, object]:
         repo_root = Path(__file__).resolve().parents[5]
         frontend_dir = repo_root / "apps" / "frontend"
@@ -140,8 +152,13 @@ class PageAnalyzer:
                 "CYBERBOX_OUTPUT_DIR": str(output_dir),
                 "CYBERBOX_TARGET_APP_ID": target.app_id,
                 "CYBERBOX_TARGET_NAME": target.name,
+                "CYBERBOX_ANALYSIS_LABEL": analysis_label,
             }
         )
+        if target_url:
+            env["CYBERBOX_TARGET_URL"] = target_url
+        if storage_state_path:
+            env["CYBERBOX_BROWSER_STORAGE_STATE"] = storage_state_path
         completed = subprocess.run(
             ["node", str(runner_path)],
             cwd=str(frontend_dir),

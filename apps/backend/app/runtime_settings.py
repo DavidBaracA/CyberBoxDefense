@@ -53,3 +53,10 @@ def get_runtime_float(name: str, default: float) -> float:
 
     value = get_runtime_setting(name, default)
     return float(value)
+
+
+def get_runtime_int(name: str, default: int) -> int:
+    """Return one integer runtime setting from env/config/default."""
+
+    value = get_runtime_setting(name, default)
+    return int(value)

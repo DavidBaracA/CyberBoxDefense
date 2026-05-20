@@ -27,6 +27,10 @@ const fallbackTemplates = [
 const initialForm = {
   name: "",
   template_id: "juice_shop",
+  use_custom_image: false,
+  custom_image_name: "",
+  container_port: "",
+  target_path: "/",
   port: "3000",
 };
 
@@ -60,15 +64,35 @@ export default function DeployAppModal({
       }));
       return;
     }
+    if (name === "use_custom_image") {
+      setForm((current) => ({
+        ...current,
+        use_custom_image: event.target.checked,
+      }));
+      return;
+    }
     setForm((current) => ({ ...current, [name]: value }));
   }
 
   async function handleSubmit(event) {
     event.preventDefault();
-    await onDeploy({
-      ...form,
-      port: Number(form.port),
-    });
+    const payload = form.use_custom_image
+      ? {
+          name: form.name,
+          template_id: "custom",
+          custom_image_name: form.custom_image_name,
+          target_path: form.target_path || "/",
+          port: Number(form.port),
+        }
+      : {
+          name: form.name,
+          template_id: form.template_id,
+          port: Number(form.port),
+        };
+    if (form.use_custom_image && form.container_port) {
+      payload.container_port = Number(form.container_port);
+    }
+    await onDeploy(payload);
     setForm(initialForm);
   }
 
@@ -99,7 +123,12 @@ export default function DeployAppModal({
 
           <label className="form-field">
             <span>Template</span>
-            <select name="template_id" value={form.template_id} onChange={handleChange}>
+            <select
+              name="template_id"
+              value={form.template_id}
+              onChange={handleChange}
+              disabled={form.use_custom_image}
+            >
               {availableTemplates.map((template) => (
                 <option key={template.template_id} value={template.template_id}>
                   {template.display_name}
@@ -108,19 +137,69 @@ export default function DeployAppModal({
             </select>
           </label>
 
-          <div className="template-note">
-            <strong>{selectedTemplate?.display_name || "Template"}</strong>
-            <p className="panel-copy">{selectedTemplate?.description || "No template description available."}</p>
-            {selectedTemplate?.caveat ? (
-              <p className="warning-copy">Note: {selectedTemplate.caveat}</p>
-            ) : null}
-            {selectedTemplate?.status_notes ? (
-              <p className="panel-copy">{selectedTemplate.status_notes}</p>
-            ) : null}
-          </div>
+          {!form.use_custom_image ? (
+            <div className="template-note">
+              <strong>{selectedTemplate?.display_name || "Template"}</strong>
+              <p className="panel-copy">{selectedTemplate?.description || "No template description available."}</p>
+              {selectedTemplate?.caveat ? (
+                <p className="warning-copy">Note: {selectedTemplate.caveat}</p>
+              ) : null}
+              {selectedTemplate?.status_notes ? (
+                <p className="panel-copy">{selectedTemplate.status_notes}</p>
+              ) : null}
+            </div>
+          ) : null}
+
+          <label className="checkbox-field">
+            <input
+              name="use_custom_image"
+              type="checkbox"
+              checked={form.use_custom_image}
+              onChange={handleChange}
+            />
+            <span>Use custom Docker image</span>
+          </label>
+
+          {form.use_custom_image ? (
+            <div className="template-note custom-image-fields">
+              <label className="form-field">
+                <span>Docker image</span>
+                <input
+                  name="custom_image_name"
+                  value={form.custom_image_name}
+                  onChange={handleChange}
+                  placeholder="my-app:latest"
+                  required={form.use_custom_image}
+                />
+              </label>
+
+              <label className="form-field">
+                <span>Container port</span>
+                <input
+                  name="container_port"
+                  type="number"
+                  min="1"
+                  max="65535"
+                  value={form.container_port}
+                  onChange={handleChange}
+                  placeholder="Auto-detect"
+                />
+              </label>
+
+              <label className="form-field">
+                <span>App path</span>
+                <input
+                  name="target_path"
+                  value={form.target_path}
+                  onChange={handleChange}
+                  placeholder="/"
+                />
+              </label>
+            </div>
+          ) : null}
 
           <label className="form-field">
-            <span>Port</span>
+            <span>{form.use_custom_image ? "Host port" : "Port"}</span>
             <input
               name="port"
               type="number"

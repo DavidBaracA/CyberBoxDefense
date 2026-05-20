@@ -8,7 +8,9 @@ TODO:
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+import hashlib
+import re
 from typing import Callable, Optional
 
 from .database import Database
@@ -20,7 +22,28 @@ from .models import (
     MetricSnapshot,
     ReportSummary,
     TelemetryEvent,
+    TelemetryKind,
+    Severity,
     VulnerabilityFindingStat,
+)
+from .runtime_settings import get_runtime_int
+
+
+DEFAULT_TELEMETRY_MAX_ROWS = 100_000
+DEFAULT_TELEMETRY_RETENTION_DAYS = 7
+DEFAULT_TELEMETRY_INFO_SAMPLE_RATE = 50
+TELEMETRY_RETENTION_INTERVAL = 1_000
+NOISY_HEALTH_PATH_PATTERN = re.compile(r"/(?:health|health_check|actuator|metrics)(?:[/\s?]|$)", re.IGNORECASE)
+NOISY_INFO_PATTERNS = (
+    re.compile(r"\bconnection (?:accepted|ended|closed)\b", re.IGNORECASE),
+    re.compile(r"\bclient metadata\b", re.IGNORECASE),
+    re.compile(r"\bclosing connection\b", re.IGNORECASE),
+    re.compile(r"\bGET\s+\S*(?:health|health_check|actuator|metrics)\b", re.IGNORECASE),
+)
+SECURITY_SIGNAL_PATTERN = re.compile(
+    r"(login|auth|password|credential|token|csrf|unauthorized|forbidden|denied|"
+    r"sql|xss|script|traversal|redirect|upload|exception|traceback|fatal|failed)",
+    re.IGNORECASE,
 )
 
 
@@ -34,6 +57,19 @@ class InMemoryRepository:
     ) -> None:
         self._database = database
         self._current_run_id_provider = current_run_id_provider
+        self._telemetry_insert_count = 0
+        self._telemetry_sample_rate = max(
+            1,
+            get_runtime_int("TELEMETRY_INFO_SAMPLE_RATE", DEFAULT_TELEMETRY_INFO_SAMPLE_RATE),
+        )
+        self._telemetry_max_rows = max(
+            0,
+            get_runtime_int("TELEMETRY_MAX_ROWS", DEFAULT_TELEMETRY_MAX_ROWS),
+        )
+        self._telemetry_retention_days = max(
+            0,
+            get_runtime_int("TELEMETRY_RETENTION_DAYS", DEFAULT_TELEMETRY_RETENTION_DAYS),
+        )
 
     def _resolve_run_id(self, run_id: Optional[str]) -> Optional[str]:
         if run_id:
@@ -42,20 +78,101 @@ class InMemoryRepository:
             return self._current_run_id_provider()
         return None
 
-    def has_seed_data(self) -> bool:
-        with self._database.connect() as connection:
-            row = connection.execute(
-                """
-                SELECT
-                  (SELECT COUNT(*) FROM telemetry_events) AS telemetry_count,
-                  (SELECT COUNT(*) FROM detection_events) AS detection_count,
-                  (SELECT COUNT(*) FROM attack_ground_truth) AS truth_count
-                """
-            ).fetchone()
-        return bool(row["telemetry_count"] or row["detection_count"] or row["truth_count"])
+    def _telemetry_text(self, event: TelemetryEvent) -> str:
+        return " ".join(
+            str(part or "")
+            for part in (
+                event.message,
+                event.path,
+                event.source_type,
+                event.container_name,
+                event.service_name,
+            )
+        )
 
-    def add_telemetry_event(self, event: TelemetryEvent) -> TelemetryEvent:
+    def _is_noisy_health_event(self, event: TelemetryEvent) -> bool:
+        text = self._telemetry_text(event)
+        return bool(NOISY_HEALTH_PATH_PATTERN.search(text))
+
+    def _is_noisy_info_event(self, event: TelemetryEvent) -> bool:
+        text = self._telemetry_text(event)
+        return any(pattern.search(text) for pattern in NOISY_INFO_PATTERNS)
+
+    def _has_security_signal(self, event: TelemetryEvent) -> bool:
+        return bool(SECURITY_SIGNAL_PATTERN.search(self._telemetry_text(event)))
+
+    def _sample_info_event(self, event: TelemetryEvent) -> bool:
+        if self._telemetry_sample_rate <= 1:
+            return True
+        sample_key = "|".join(
+            str(part or "")
+            for part in (
+                event.run_id,
+                event.app_id,
+                event.source.value,
+                event.kind.value,
+                event.container_name,
+                event.path,
+                event.message,
+            )
+        )
+        digest = hashlib.sha256(sample_key.encode("utf-8", errors="ignore")).hexdigest()
+        return int(digest[:8], 16) % self._telemetry_sample_rate == 0
+
+    def _should_persist_telemetry_event(self, event: TelemetryEvent) -> bool:
+        if event.severity != Severity.INFO:
+            return True
+        if event.kind == TelemetryKind.HTTP_ERROR:
+            return True
+        if event.source_type in {"docker_event", "docker_status"}:
+            return True
+        if self._has_security_signal(event):
+            return True
+        if self._is_noisy_health_event(event) or self._is_noisy_info_event(event):
+            return False
+        if event.kind in {TelemetryKind.ACCESS_LOG, TelemetryKind.APP_LOG, TelemetryKind.CONTAINER_SIGNAL}:
+            return self._sample_info_event(event)
+        return True
+
+    def _apply_telemetry_retention(self, connection) -> None:
+        if self._telemetry_retention_days:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=self._telemetry_retention_days)
+            connection.execute(
+                """
+                DELETE FROM telemetry_events
+                WHERE timestamp < ?
+                """,
+                (cutoff.isoformat(),),
+            )
+
+        if not self._telemetry_max_rows:
+            return
+        row = connection.execute("SELECT COUNT(*) AS count FROM telemetry_events").fetchone()
+        overflow = int(row["count"] or 0) - self._telemetry_max_rows
+        if overflow <= 0:
+            return
+        connection.execute(
+            """
+            DELETE FROM telemetry_events
+            WHERE event_id IN (
+                SELECT event_id
+                FROM telemetry_events
+                ORDER BY timestamp ASC
+                LIMIT ?
+            )
+            """,
+            (overflow,),
+        )
+
+    def prune_telemetry_events(self) -> None:
+        """Apply configured telemetry retention immediately."""
+        with self._database.connect() as connection:
+            self._apply_telemetry_retention(connection)
+
+    def add_telemetry_event(self, event: TelemetryEvent) -> Optional[TelemetryEvent]:
         event.run_id = self._resolve_run_id(event.run_id)
+        if not self._should_persist_telemetry_event(event):
+            return None
         with self._database.connect() as connection:
             connection.execute(
                 """
@@ -79,6 +196,9 @@ class InMemoryRepository:
                     self._database.to_json(event.model_dump(mode="json")),
                 ),
             )
+            self._telemetry_insert_count += 1
+            if self._telemetry_insert_count % TELEMETRY_RETENTION_INTERVAL == 0:
+                self._apply_telemetry_retention(connection)
         return event
 
     def add_detection_event(self, detection: DetectionEvent) -> DetectionEvent:
@@ -227,6 +347,48 @@ class InMemoryRepository:
                 ).fetchall()
         return [AttackGroundTruth.model_validate(self._database.from_json(row["payload_json"])) for row in rows]
 
+    def count_telemetry_events(self, run_id: Optional[str] = None) -> int:
+        """Return a cheap telemetry row count without hydrating event payloads."""
+        with self._database.connect() as connection:
+            if run_id:
+                row = connection.execute(
+                    "SELECT COUNT(*) AS count FROM telemetry_events WHERE run_id = ?",
+                    (run_id,),
+                ).fetchone()
+            else:
+                row = connection.execute(
+                    "SELECT COUNT(*) AS count FROM telemetry_events"
+                ).fetchone()
+        return int(row["count"] or 0)
+
+    def count_detection_events(self, run_id: Optional[str] = None) -> int:
+        """Return a cheap detection row count without hydrating event payloads."""
+        with self._database.connect() as connection:
+            if run_id:
+                row = connection.execute(
+                    "SELECT COUNT(*) AS count FROM detection_events WHERE run_id = ?",
+                    (run_id,),
+                ).fetchone()
+            else:
+                row = connection.execute(
+                    "SELECT COUNT(*) AS count FROM detection_events"
+                ).fetchone()
+        return int(row["count"] or 0)
+
+    def count_attack_ground_truth(self, run_id: Optional[str] = None) -> int:
+        """Return a cheap ground-truth row count without hydrating event payloads."""
+        with self._database.connect() as connection:
+            if run_id:
+                row = connection.execute(
+                    "SELECT COUNT(*) AS count FROM attack_ground_truth WHERE run_id = ?",
+                    (run_id,),
+                ).fetchone()
+            else:
+                row = connection.execute(
+                    "SELECT COUNT(*) AS count FROM attack_ground_truth"
+                ).fetchone()
+        return int(row["count"] or 0)
+
     def compute_metrics(self, run_id: Optional[str] = None) -> MetricSnapshot:
         """Compute first-pass metrics from persisted state."""
         attack_ground_truth = self.list_attack_ground_truth(run_id=run_id)
@@ -264,9 +426,27 @@ class InMemoryRepository:
             detection_accuracy=match_count / attack_count if attack_count else 0.0,
             classification_accuracy=match_count / detection_count if detection_count else 0.0,
             false_positive_rate=false_positive_count / detection_count if detection_count else 0.0,
-            telemetry_event_count=len(self.list_telemetry_events(run_id=run_id)),
+            telemetry_event_count=self.count_telemetry_events(run_id=run_id),
             detection_count=detection_count,
             attack_ground_truth_count=attack_count,
+            red={
+                "evaluated_attack_count": attack_count,
+                "detected_attack_count": match_count,
+                "missed_attack_count": attack_count - match_count,
+                "ground_truth_record_count": attack_count,
+            },
+            blue={
+                "detection_count": detection_count,
+                "matched_detection_count": match_count,
+                "false_positive_count": false_positive_count,
+                "false_positive_rate": false_positive_count / detection_count if detection_count else 0.0,
+            },
+            overall={
+                "telemetry_event_count": self.count_telemetry_events(run_id=run_id),
+                "mean_time_to_detection_seconds": mean_time_to_detection,
+                "detection_accuracy": match_count / attack_count if attack_count else 0.0,
+                "classification_accuracy": match_count / detection_count if detection_count else 0.0,
+            },
         )
 
     def get_report_summary(

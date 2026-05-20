@@ -10,16 +10,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-import os
-from pathlib import Path
+import json
 import re
 import subprocess
 import threading
-import time
 from typing import Callable, Optional
 
 from ..models import Severity, TelemetryEvent, TelemetryKind, TelemetrySource, utc_now
-from ..services.template_registry import get_template
 from ..vulnerable_apps_models import DeploymentType, VulnerableAppDetail, VulnerableAppStatus
 
 
@@ -34,6 +31,16 @@ STATUS_PATTERN = re.compile(r"\b(?:status|code)[=: ]+(?P<status>\d{3})\b", re.IG
 PATH_PATTERN = re.compile(r"\b(?:path|uri|route)[=: ]+(?P<path>/\S*)\b", re.IGNORECASE)
 ERROR_KEYWORDS = ("error", "exception", "traceback", "fatal", "failed")
 WARNING_KEYWORDS = ("warn", "timeout", "slow", "denied")
+DOCKER_CLIENT_ERROR_PATTERNS = (
+    re.compile(r"failed to connect to the docker API", re.IGNORECASE),
+    re.compile(r"cannot connect to the docker daemon", re.IGNORECASE),
+    re.compile(r"error during connect", re.IGNORECASE),
+)
+DOCKER_FAILURE_BACKOFF_SECONDS = 5.0
+DOCKER_STATUS_POLL_SECONDS = 10.0
+HIGH_RISK_DOCKER_ACTIONS = {"die", "kill", "oom", "destroy"}
+WARNING_DOCKER_ACTIONS = {"stop", "restart", "pause", "unpause"}
+UNHEALTHY_STATES = {"exited", "dead", "restarting"}
 
 
 @dataclass
@@ -57,7 +64,7 @@ class AppCollectorRuntime:
 
 
 class TelemetryLineNormalizer:
-    """Normalize raw container or file log lines into TelemetryEvent records."""
+    """Normalize raw container log lines into TelemetryEvent records."""
 
     def normalize(
         self,
@@ -89,8 +96,6 @@ class TelemetryLineNormalizer:
             path_match = PATH_PATTERN.search(message)
             if path_match:
                 path = path_match.group("path")
-            if source_spec.source_type == "access_log_file":
-                kind = TelemetryKind.ACCESS_LOG
 
         severity = self._infer_severity(message, status)
         if kind == TelemetryKind.APP_LOG and source_spec.source == TelemetrySource.CONTAINER_MONITOR:
@@ -259,24 +264,22 @@ class TelemetryCollector:
                     container_name=container_name,
                 )
             )
-
-        template = get_template(app.template_id)
-        for path in template.metadata.get("app_log_paths", []):
             specs.append(
                 CollectorSourceSpec(
-                    source_type="application_log_file",
-                    target=str(path),
-                    source=TelemetrySource.VULNERABLE_APP,
-                    reader_kind="file_tail",
+                    source_type="docker_event",
+                    target=container_name,
+                    source=TelemetrySource.CONTAINER_MONITOR,
+                    reader_kind="docker_events",
+                    container_name=container_name,
                 )
             )
-        for path in template.metadata.get("access_log_paths", []):
             specs.append(
                 CollectorSourceSpec(
-                    source_type="access_log_file",
-                    target=str(path),
-                    source=TelemetrySource.VULNERABLE_APP,
-                    reader_kind="file_tail",
+                    source_type="docker_status",
+                    target=container_name,
+                    source=TelemetrySource.CONTAINER_MONITOR,
+                    reader_kind="docker_status",
+                    container_name=container_name,
                 )
             )
         return specs
@@ -310,8 +313,12 @@ class TelemetryCollector:
         if source_spec.reader_kind == "docker_logs":
             self._follow_docker_logs(app, source_spec, stop_event)
             return
-        if source_spec.reader_kind == "file_tail":
-            self._tail_log_file(app, source_spec, stop_event)
+        if source_spec.reader_kind == "docker_events":
+            self._follow_docker_events(app, source_spec, stop_event)
+            return
+        if source_spec.reader_kind == "docker_status":
+            self._poll_docker_status(app, source_spec, stop_event)
+            return
 
     def _follow_docker_logs(
         self,
@@ -320,26 +327,33 @@ class TelemetryCollector:
         stop_event: threading.Event,
     ) -> None:
         while not stop_event.is_set():
-            self._deployment_service.ensure_docker_available()
-            process = subprocess.Popen(
-                [
-                    self._deployment_service.docker_binary,
-                    "logs",
-                    "--timestamps",
-                    "-f",
-                    source_spec.target,
-                ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-            )
+            try:
+                self._deployment_service.ensure_docker_available()
+                process = subprocess.Popen(
+                    [
+                        self._deployment_service.docker_binary,
+                        "logs",
+                        "--timestamps",
+                        "-f",
+                        source_spec.target,
+                    ],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                )
+            except Exception:
+                if stop_event.wait(DOCKER_FAILURE_BACKOFF_SECONDS):
+                    return
+                continue
+
             try:
                 self._read_process_lines(app, source_spec, process, stop_event)
             finally:
                 self._terminate_process(process)
 
-            if stop_event.wait(1.0):
+            backoff = DOCKER_FAILURE_BACKOFF_SECONDS if process.returncode else 1.0
+            if stop_event.wait(backoff):
                 return
 
     def _read_process_lines(
@@ -357,29 +371,229 @@ class TelemetryCollector:
                 if process.poll() is not None:
                     return
                 continue
+            if source_spec.reader_kind == "docker_logs" and self._is_docker_client_error(line):
+                continue
             self._emit_normalized_event(app, source_spec, line)
 
-    def _tail_log_file(
+    def _is_docker_client_error(self, line: str) -> bool:
+        return any(pattern.search(line) for pattern in DOCKER_CLIENT_ERROR_PATTERNS)
+
+    def _follow_docker_events(
         self,
         app: VulnerableAppDetail,
         source_spec: CollectorSourceSpec,
         stop_event: threading.Event,
     ) -> None:
-        path = Path(source_spec.target)
         while not stop_event.is_set():
-            if not path.exists():
-                if stop_event.wait(2.0):
+            try:
+                self._deployment_service.ensure_docker_available()
+                process = subprocess.Popen(
+                    [
+                        self._deployment_service.docker_binary,
+                        "events",
+                        "--filter",
+                        f"container={source_spec.target}",
+                        "--format",
+                        "{{json .}}",
+                    ],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                )
+            except Exception:
+                if stop_event.wait(DOCKER_FAILURE_BACKOFF_SECONDS):
                     return
                 continue
-            with path.open("r", encoding="utf-8", errors="replace") as handle:
-                handle.seek(0, os.SEEK_END)
-                while not stop_event.is_set():
-                    line = handle.readline()
-                    if line:
-                        self._emit_normalized_event(app, source_spec, line)
-                        continue
-                    if stop_event.wait(0.5):
-                        return
+
+            try:
+                self._read_docker_event_lines(app, source_spec, process, stop_event)
+            finally:
+                self._terminate_process(process)
+
+            backoff = DOCKER_FAILURE_BACKOFF_SECONDS if process.returncode else 1.0
+            if stop_event.wait(backoff):
+                return
+
+    def _read_docker_event_lines(
+        self,
+        app: VulnerableAppDetail,
+        source_spec: CollectorSourceSpec,
+        process: subprocess.Popen[str],
+        stop_event: threading.Event,
+    ) -> None:
+        if not process.stdout:
+            return
+        while not stop_event.is_set():
+            line = process.stdout.readline()
+            if not line:
+                if process.poll() is not None:
+                    return
+                continue
+            if self._is_docker_client_error(line):
+                continue
+            self._emit_docker_event(app, source_spec, line)
+
+    def _emit_docker_event(
+        self,
+        app: VulnerableAppDetail,
+        source_spec: CollectorSourceSpec,
+        raw_line: str,
+    ) -> None:
+        try:
+            payload = json.loads(raw_line)
+        except json.JSONDecodeError:
+            return
+
+        action = str(payload.get("Action") or payload.get("status") or "unknown")
+        actor = payload.get("Actor") if isinstance(payload.get("Actor"), dict) else {}
+        attributes = actor.get("Attributes") if isinstance(actor.get("Attributes"), dict) else {}
+        event_time = self._docker_event_time(payload)
+        severity = self._docker_event_severity(action, attributes)
+        message = f"Docker event '{action}' observed for container {source_spec.target}."
+        health_status = self._docker_event_health_status(action, attributes)
+        if health_status:
+            message = f"Docker health event '{health_status}' observed for container {source_spec.target}."
+
+        self._emit_telemetry_event(
+            TelemetryEvent(
+                app_id=app.app_id,
+                timestamp=event_time,
+                source=source_spec.source,
+                source_type=source_spec.source_type,
+                kind=TelemetryKind.CONTAINER_SIGNAL,
+                severity=severity,
+                container_name=source_spec.container_name,
+                service_name=app.name,
+                message=message,
+                metadata={
+                    "collector_target": source_spec.target,
+                    "deployment_type": app.deployment_type.value,
+                    "docker_action": action,
+                    "docker_event": payload,
+                },
+            )
+        )
+
+    def _docker_event_time(self, payload: dict[str, object]) -> datetime:
+        raw_time = payload.get("timeNano")
+        if isinstance(raw_time, int):
+            return datetime.fromtimestamp(raw_time / 1_000_000_000, tz=utc_now().tzinfo)
+        raw_time = payload.get("time")
+        if isinstance(raw_time, int):
+            return datetime.fromtimestamp(raw_time, tz=utc_now().tzinfo)
+        return utc_now()
+
+    def _docker_event_severity(self, action: str, attributes: dict[str, object]) -> Severity:
+        normalized_action = action.lower()
+        health_status = self._docker_event_health_status(action, attributes)
+        if normalized_action in HIGH_RISK_DOCKER_ACTIONS or health_status == "unhealthy":
+            return Severity.HIGH
+        if normalized_action in WARNING_DOCKER_ACTIONS or health_status == "starting":
+            return Severity.WARNING
+        return Severity.INFO
+
+    def _docker_event_health_status(self, action: str, attributes: dict[str, object]) -> str:
+        raw_status = str(attributes.get("health_status") or "").lower()
+        if raw_status:
+            return raw_status
+        prefix = "health_status:"
+        normalized_action = action.lower()
+        if normalized_action.startswith(prefix):
+            return normalized_action[len(prefix) :].strip()
+        return ""
+
+    def _poll_docker_status(
+        self,
+        app: VulnerableAppDetail,
+        source_spec: CollectorSourceSpec,
+        stop_event: threading.Event,
+    ) -> None:
+        last_signature: Optional[tuple[object, ...]] = None
+        while not stop_event.is_set():
+            try:
+                result = self._deployment_service._run_docker_command(
+                    ["inspect", "--format", "{{json .}}", source_spec.target]
+                )
+            except Exception:
+                if stop_event.wait(DOCKER_FAILURE_BACKOFF_SECONDS):
+                    return
+                continue
+
+            if result.returncode == 0 and result.stdout.strip():
+                try:
+                    payload = json.loads(result.stdout)
+                except json.JSONDecodeError:
+                    payload = None
+                if isinstance(payload, dict):
+                    signature = self._docker_status_signature(payload)
+                    if signature != last_signature:
+                        last_signature = signature
+                        self._emit_docker_status(app, source_spec, payload)
+
+            if stop_event.wait(DOCKER_STATUS_POLL_SECONDS):
+                return
+
+    def _docker_status_signature(self, payload: dict[str, object]) -> tuple[object, ...]:
+        state = payload.get("State") if isinstance(payload.get("State"), dict) else {}
+        health = state.get("Health") if isinstance(state.get("Health"), dict) else {}
+        return (
+            state.get("Status"),
+            health.get("Status"),
+            state.get("Running"),
+            state.get("Restarting"),
+            state.get("ExitCode"),
+            state.get("OOMKilled"),
+            state.get("Error"),
+            payload.get("RestartCount"),
+        )
+
+    def _emit_docker_status(
+        self,
+        app: VulnerableAppDetail,
+        source_spec: CollectorSourceSpec,
+        payload: dict[str, object],
+    ) -> None:
+        state = payload.get("State") if isinstance(payload.get("State"), dict) else {}
+        health = state.get("Health") if isinstance(state.get("Health"), dict) else {}
+        status = str(state.get("Status") or "unknown")
+        health_status = str(health.get("Status") or "")
+        severity = self._docker_status_severity(state, health_status)
+        health_suffix = f", health={health_status}" if health_status else ""
+        message = f"Docker status for container {source_spec.target}: status={status}{health_suffix}."
+
+        self._emit_telemetry_event(
+            TelemetryEvent(
+                app_id=app.app_id,
+                source=source_spec.source,
+                source_type=source_spec.source_type,
+                kind=TelemetryKind.CONTAINER_SIGNAL,
+                severity=severity,
+                container_name=source_spec.container_name,
+                service_name=app.name,
+                message=message,
+                metadata={
+                    "collector_target": source_spec.target,
+                    "deployment_type": app.deployment_type.value,
+                    "docker_status": status,
+                    "docker_health_status": health_status or None,
+                    "docker_running": state.get("Running"),
+                    "docker_restarting": state.get("Restarting"),
+                    "docker_exit_code": state.get("ExitCode"),
+                    "docker_oom_killed": state.get("OOMKilled"),
+                    "docker_error": state.get("Error"),
+                    "docker_restart_count": payload.get("RestartCount"),
+                },
+            )
+        )
+
+    def _docker_status_severity(self, state: dict[str, object], health_status: str) -> Severity:
+        status = str(state.get("Status") or "").lower()
+        if state.get("OOMKilled") or health_status == "unhealthy" or status in UNHEALTHY_STATES:
+            return Severity.HIGH
+        if state.get("Restarting") or health_status == "starting":
+            return Severity.WARNING
+        return Severity.INFO
 
     def _emit_normalized_event(
         self,
@@ -387,14 +601,25 @@ class TelemetryCollector:
         source_spec: CollectorSourceSpec,
         raw_line: str,
     ) -> None:
+        run_id = self._run_id_provider() if self._run_id_provider else None
+        if run_id is None:
+            return
+
         event = self._normalizer.normalize(
             app=app,
             source_spec=source_spec,
             raw_line=raw_line,
-            run_id=self._run_id_provider() if self._run_id_provider else None,
+            run_id=run_id,
         )
         if event is None:
             return
+        self._emit_telemetry_event(event)
+
+    def _emit_telemetry_event(self, event: TelemetryEvent) -> None:
+        run_id = self._run_id_provider() if self._run_id_provider else None
+        if run_id is None:
+            return
+        event.run_id = run_id
         self._telemetry_callback(event)
 
     def _terminate_process(self, process: subprocess.Popen[str]) -> None:

@@ -64,8 +64,8 @@ export default function VulnerableAppsPanel({
       ) : rows.length === 0 ? (
         <p className="empty-state">No vulnerable apps deployed yet.</p>
       ) : (
-        <div className="table-wrap">
-          <table>
+        <div className="table-wrap vulnerable-apps-table-wrap">
+          <table className="vulnerable-apps-table">
             <thead>
               <tr>
                 <th>Name</th>

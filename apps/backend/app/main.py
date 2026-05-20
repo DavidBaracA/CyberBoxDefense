@@ -19,6 +19,7 @@ from .api.apps import create_apps_router
 from .api.blue_agent import create_blue_agent_router
 from .api.config import create_config_router
 from .api.red_agent import create_red_agent_router
+from .api.run_state import create_run_state_router
 from .api.runs import create_runs_router
 from .database import Database
 from .models import (
@@ -28,8 +29,6 @@ from .models import (
     MetricSnapshot,
     ReportSummary,
     TelemetryEvent,
-    TelemetryKind,
-    TelemetrySource,
 )
 from .repository import InMemoryRepository
 from .repositories.app_repository import VulnerableAppRepository
@@ -44,6 +43,7 @@ from .services.telemetry_collector import TelemetryCollector
 from .services.run_execution_service import RunExecutionService
 from .services.run_orchestrator import RunOrchestrator
 from .services.run_state_store import RunStateStore
+from .services.run_state_stream import RunStateStream
 from .services.run_service import RunService
 from .vulnerable_apps_models import VulnerableAppStatus
 
@@ -70,6 +70,7 @@ database = Database(repo_root / "data" / "cyberbox.db")
 vulnerable_app_repository = VulnerableAppRepository(database)
 deployment_service = DeploymentService()
 run_state_store = RunStateStore()
+run_state_stream = RunStateStream(run_state_store)
 red_session_history_store = RedAgentSessionHistoryStore(repo_root / "data" / "red_agent_sessions.json")
 rule_based_blue_detector = RuleBasedBlueDetector()
 
@@ -93,38 +94,48 @@ def get_all_vulnerable_apps():
     return apps
 
 
+def publish_run_state(run):
+    snapshot = run_state_store.upsert_run(run)
+    run_state_stream.publish_run(run, snapshot)
+
+
 run_service = RunService(
     app_provider=get_all_vulnerable_apps,
     action_logger=lambda event: record_action_event(event),
     state_store=run_state_store,
+    state_publisher=publish_run_state,
 )
 repository = InMemoryRepository(
     database,
     current_run_id_provider=run_service.get_active_run_id,
 )
+repository.prune_telemetry_events()
 evaluation_service = EvaluationService(repository)
 
 
 def record_metrics_snapshot_for_run(run_id: Optional[str]) -> None:
     if not run_id:
         return
-    run_state_store.record_metrics_snapshot(
-        run_id,
-        evaluation_service.metrics_for_run(run_id),
-    )
+    snapshot = evaluation_service.metrics_for_run(run_id)
+    run_state_store.record_metrics_snapshot(run_id, snapshot)
+    run_state_stream.publish_metrics(run_id, snapshot)
 
 
 def record_action_event(event: ActionEvent) -> ActionEvent:
     stored = repository.log_action(event)
     if stored.run_id:
         run_state_store.append_action(stored.run_id, stored)
+        run_state_stream.publish_action(stored)
     return stored
 
 
 def record_telemetry_event(event: TelemetryEvent) -> TelemetryEvent:
     stored = repository.add_telemetry_event(event)
+    if stored is None:
+        return event
     if stored.run_id:
         run_state_store.append_telemetry_event(stored.run_id, stored)
+        run_state_stream.publish_telemetry(stored)
         for detection in rule_based_blue_detector.process_event(stored):
             record_detection_event(detection)
         record_metrics_snapshot_for_run(stored.run_id)
@@ -135,6 +146,7 @@ def record_detection_event(event: DetectionEvent) -> DetectionEvent:
     stored = repository.add_detection_event(event)
     if stored.run_id:
         run_state_store.append_detection(stored.run_id, stored)
+        run_state_stream.publish_detection(stored)
         if hasattr(blue_agent_service, "publish_detection"):
             blue_agent_service.publish_detection(stored)
         record_metrics_snapshot_for_run(stored.run_id)
@@ -182,7 +194,6 @@ blue_agent_service = BlueAgentService(
 red_agent_service = RedAgentManager(
     running_targets_provider=get_running_vulnerable_apps,
     run_service=run_service,
-    telemetry_callback=record_telemetry_event,
     ground_truth_callback=record_ground_truth_event,
     action_callback=record_action_event,
     run_state_store=run_state_store,
@@ -207,50 +218,6 @@ def resolve_run_id_or_none(requested_run_id: Optional[str]) -> Optional[str]:
     return run_service.get_active_run_id()
 
 
-def seed_demo_state() -> None:
-    """Seed demo data so the backend has a useful first-run state."""
-    if repository.has_seed_data():
-        return
-
-    baseline_event = TelemetryEvent(
-        source=TelemetrySource.VULNERABLE_APP,
-        kind=TelemetryKind.ACCESS_LOG,
-        container_name="vulnerable_app",
-        service_name="vulnerable_app",
-        path="/",
-        http_status=200,
-        message="Baseline request served successfully.",
-    )
-    suspicious_event = TelemetryEvent(
-        source=TelemetrySource.CONTAINER_MONITOR,
-        kind=TelemetryKind.HTTP_ERROR,
-        severity="warning",
-        container_name="vulnerable_app",
-        service_name="vulnerable_app",
-        path="/search",
-        http_status=500,
-        message="Container monitor observed a spike in HTTP 500 responses on /search.",
-    )
-    attack = AttackGroundTruth(
-        attack_type="sql_injection",
-        target="vulnerable_app/search",
-        notes="Seeded offline ground truth for demo mode.",
-    )
-    detection = DetectionEvent(
-        detector="blue_agent_heuristic",
-        classification="sql_injection",
-        confidence=0.74,
-        summary="Detected suspicious error burst consistent with SQL injection probing.",
-        evidence_event_ids=[suspicious_event.event_id],
-    )
-
-    repository.add_telemetry_event(baseline_event)
-    repository.add_telemetry_event(suspicious_event)
-    repository.add_attack_ground_truth(attack)
-    repository.add_detection_event(detection)
-
-
-seed_demo_state()
 app.include_router(
     create_apps_router(
         vulnerable_app_repository,
@@ -268,6 +235,7 @@ app.include_router(
     )
 )
 app.include_router(create_red_agent_router(red_agent_service, run_state_store=run_state_store))
+app.include_router(create_run_state_router(run_service, run_state_stream))
 app.include_router(
     create_runs_router(
         run_service,
@@ -296,12 +264,6 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/api/telemetry/events", response_model=TelemetryEvent)
-def ingest_telemetry_event(event: TelemetryEvent) -> TelemetryEvent:
-    """Ingest indirect telemetry from the vulnerable app or a container monitor."""
-    return record_telemetry_event(event)
-
-
 @app.get("/api/telemetry", response_model=list[TelemetryEvent])
 def list_telemetry(run_id: Optional[str] = None) -> list[TelemetryEvent]:
     """Return Blue-safe telemetry events for visualization."""
@@ -326,12 +288,10 @@ def list_detections(run_id: Optional[str] = None) -> list[DetectionEvent]:
 
 @app.get("/api/metrics", response_model=MetricSnapshot)
 def get_metrics(run_id: Optional[str] = None) -> MetricSnapshot:
-    """Return simple persisted evaluation metrics for the current run."""
-    resolved_run_id = resolve_run_id_or_none(run_id)
-    if not resolved_run_id:
-        return MetricSnapshot()
-    snapshot = evaluation_service.metrics_for_run(resolved_run_id)
-    run_state_store.record_metrics_snapshot(resolved_run_id, snapshot)
+    """Return aggregate evaluation metrics, or run-scoped metrics when requested."""
+    snapshot = evaluation_service.metrics_for_run(run_id)
+    if run_id:
+        run_state_store.record_metrics_snapshot(run_id, snapshot)
     return snapshot
 
 

@@ -45,10 +45,12 @@ class RunService:
         app_provider: Callable[[], list[VulnerableAppDetail]],
         action_logger: Optional[Callable[[ActionEvent], ActionEvent]] = None,
         state_store: Optional[RunStateStore] = None,
+        state_publisher: Optional[Callable[[Run], None]] = None,
     ) -> None:
         self._app_provider = app_provider
         self._action_logger = action_logger
         self._state_store = state_store
+        self._state_publisher = state_publisher
         self._runs: dict[str, Run] = {}
         self._lock = threading.Lock()
 
@@ -75,6 +77,10 @@ class RunService:
 
     def _all_apps(self) -> list[VulnerableAppDetail]:
         return list(self._app_provider())
+
+    def _publish_state(self, run: Run) -> None:
+        if self._state_publisher:
+            self._state_publisher(run.model_copy(deep=True))
 
     def _get_app_or_409(self, app_id: str) -> VulnerableAppDetail:
         app = next((item for item in self._all_apps() if item.app_id == app_id), None)
@@ -134,6 +140,7 @@ class RunService:
             if self._state_store:
                 self._state_store.upsert_run(run)
             self._log_action("run_created", run)
+            self._publish_state(run)
             return run
 
     def list_runs(self) -> list[Run]:
@@ -171,6 +178,7 @@ class RunService:
             self._runs[run_id] = run
             if self._state_store:
                 self._state_store.upsert_run(run)
+            self._publish_state(run)
             return run.model_copy(deep=True)
 
     def stop_run(self, run_id: str) -> Run:
@@ -187,6 +195,9 @@ class RunService:
             run.termination_reason = RunTerminationReason.STOPPED_BY_USER
             self._runs[run_id] = run
             self._log_action("run_stop_requested", run)
+            if self._state_store:
+                self._state_store.upsert_run(run)
+            self._publish_state(run)
             return run.model_copy(deep=True)
 
     def is_stop_requested(self, run_id: str) -> bool:

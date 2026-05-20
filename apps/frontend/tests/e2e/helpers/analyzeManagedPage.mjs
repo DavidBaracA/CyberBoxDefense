@@ -97,8 +97,14 @@ async function extractCandidateElements(page) {
       const ariaLabel = cleanText(node.getAttribute("aria-label") || "");
       const combinedText = cleanText(`${text} ${ariaLabel}`);
       const lowerCombinedText = combinedText.toLowerCase();
+      const isResetOrSignup = /forgot|reset|recover|signup|sign up|register|create account/.test(lowerCombinedText);
       const signals = signalList([
-        /login|sign in|account/.test(lowerCombinedText) ? "login_navigation" : "",
+        /login|log in|sign in|account/.test(lowerCombinedText) ? "login_navigation" : "",
+        !isResetOrSignup &&
+        (node.matches("button[type='submit'], input[type='submit']") ||
+          /^(login|log in|sign in|submit|continue)$/.test(lowerCombinedText))
+          ? "login_submit"
+          : "",
         /upload|attach/.test(lowerCombinedText) ? "upload_button" : "",
         /continue|redirect|return/.test(lowerCombinedText) ? "redirect_navigation" : "",
         /search|find/.test(lowerCombinedText) ? "search_reveal_or_submit" : "",
@@ -130,6 +136,21 @@ function buildHeuristicAnalysis({ pageUrl, title, bodyText, candidateElements, l
   const searchReveal = candidateElements.find((item) =>
     (item.signals || []).includes("search_reveal_or_submit")
   );
+  const uploadReveal = candidateElements.find((item) =>
+    (item.signals || []).includes("upload_button")
+  );
+  const redirectReveal = candidateElements.find((item) =>
+    (item.signals || []).includes("redirect_navigation") || (item.signals || []).includes("redirect_link")
+  );
+  const loginReveal = candidateElements.find((item) =>
+    (item.signals || []).includes("login_navigation") && item.element_kind === "link"
+  );
+  const loginSubmit = candidateElements.find((item) =>
+    (item.signals || []).includes("login_submit") && item.element_kind === "button"
+  );
+  const fileInput = candidateElements.find((item) =>
+    (item.signals || []).includes("file_input")
+  );
   const hasSearch =
     inputSignals.includes("search_field") ||
     Boolean(searchReveal) ||
@@ -152,6 +173,8 @@ function buildHeuristicAnalysis({ pageUrl, title, bodyText, candidateElements, l
       rationale: "Detected login-oriented text plus password and/or account inputs.",
       source: "dom_heuristic",
       supporting_signals: ["login_page", ...(hasPassword ? ["password_field"] : []), ...(hasUserField ? ["username_field"] : [])],
+      pre_action_selector: loginReveal?.locator_hint || undefined,
+      target_selector: loginSubmit?.locator_hint || undefined,
     });
   }
 
@@ -187,6 +210,8 @@ function buildHeuristicAnalysis({ pageUrl, title, bodyText, candidateElements, l
       rationale: "Detected file input or upload-oriented wording on the current page.",
       source: "dom_heuristic",
       supporting_signals: ["upload_page", "file_input"],
+      pre_action_selector: uploadReveal && !fileInput ? uploadReveal.locator_hint : undefined,
+      target_selector: fileInput?.locator_hint || undefined,
     });
   }
 
@@ -198,6 +223,8 @@ function buildHeuristicAnalysis({ pageUrl, title, bodyText, candidateElements, l
       rationale: "Detected redirect-like parameters or return-navigation indicators.",
       source: "dom_heuristic",
       supporting_signals: ["return_flow", "redirect_link"],
+      pre_action_selector: redirectReveal?.locator_hint || undefined,
+      target_parameter: "to",
     });
   }
 
@@ -211,8 +238,13 @@ function buildHeuristicAnalysis({ pageUrl, title, bodyText, candidateElements, l
       title,
       has_password_input: hasPassword,
       has_username_input: hasUserField,
+      login_reveal_selector: loginReveal?.locator_hint || null,
+      login_submit_selector: loginSubmit?.locator_hint || null,
       has_search_surface: hasSearch,
       search_reveal_selector: searchReveal?.locator_hint || null,
+      upload_reveal_selector: uploadReveal?.locator_hint || null,
+      upload_target_selector: fileInput?.locator_hint || null,
+      redirect_reveal_selector: redirectReveal?.locator_hint || null,
       has_file_upload_surface: hasFileUpload,
       has_redirect_signal: hasRedirect,
       candidate_element_count: candidateElements.length,
@@ -224,10 +256,16 @@ function buildHeuristicAnalysis({ pageUrl, title, bodyText, candidateElements, l
   };
 }
 
-async function analyzePage({ targetUrl, templateId, outputDir, runId }) {
+async function analyzePage({ targetUrl, templateId, outputDir, runId, storageStatePath, analysisLabel }) {
   const safeUrl = assertLocalHttpUrl(targetUrl);
   const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage();
+  const storageStateExists = storageStatePath
+    ? await fs.stat(storageStatePath).then(() => true).catch(() => false)
+    : false;
+  const context = await browser.newContext(
+    storageStateExists ? { storageState: storageStatePath } : {}
+  );
+  const page = await context.newPage();
 
   try {
     const response = await page.goto(safeUrl, { waitUntil: "domcontentloaded", timeout: 20_000 });
@@ -244,8 +282,9 @@ async function analyzePage({ targetUrl, templateId, outputDir, runId }) {
     );
 
     await fs.mkdir(outputDir, { recursive: true });
-    const screenshotPath = path.join(outputDir, `${templateId}-${runId}-page-analysis.png`);
-    await page.screenshot({ path: screenshotPath, fullPage: true });
+    const safeAnalysisLabel = String(analysisLabel || "page-analysis").replace(/[^a-z0-9_-]+/gi, "-");
+    const screenshotPath = path.join(outputDir, `${templateId}-${runId}-${safeAnalysisLabel}.png`);
+    await page.screenshot({ path: screenshotPath, fullPage: false });
 
     const heuristic = buildHeuristicAnalysis({
       pageUrl: page.url(),
@@ -280,6 +319,7 @@ async function analyzePage({ targetUrl, templateId, outputDir, runId }) {
       ...heuristic,
     };
   } finally {
+    await context.close().catch(() => {});
     await browser.close();
   }
 }
@@ -291,6 +331,8 @@ async function main() {
   const outputDir =
     process.env.CYBERBOX_OUTPUT_DIR ||
     path.resolve(process.cwd(), "test-results", "red-agent");
+  const storageStatePath = process.env.CYBERBOX_BROWSER_STORAGE_STATE || "";
+  const analysisLabel = process.env.CYBERBOX_ANALYSIS_LABEL || "page-analysis";
 
   if (!targetUrl) {
     throw new Error("CYBERBOX_TARGET_URL is required.");
@@ -301,6 +343,8 @@ async function main() {
     templateId,
     outputDir,
     runId,
+    storageStatePath,
+    analysisLabel,
   });
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }

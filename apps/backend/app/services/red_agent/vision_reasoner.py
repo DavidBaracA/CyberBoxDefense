@@ -19,6 +19,7 @@ from ...runtime_settings import get_runtime_bool, get_runtime_float, get_runtime
 
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 DEFAULT_OLLAMA_TIMEOUT_SECONDS = 120.0
+DEFAULT_SESSION_CONCLUSION_TIMEOUT_SECONDS = 60.0
 DEFAULT_OLLAMA_THINK = False
 DEFAULT_VISION_MODEL = "gemma3:4b"
 
@@ -144,8 +145,15 @@ class OllamaVisionReasoner:
             "- recommended_scenarios: array of {scenario_id, confidence, rationale, supporting_signals, "
             "target_page_url, pre_action_selector, target_selector, target_parameter}. "
             "Use target hints only for observed local page URLs, visible selectors, or common query parameter names. "
+            "For brute_force_login, set pre_action_selector to a safe visible login/account control when the login "
+            "form must be opened first, and set target_selector to the observed visible submit/login button for the "
+            "form when known. "
             "If a search input is hidden behind a visible search icon or button, set pre_action_selector to the "
-            "selector for the safe click that reveals it. "
+            "selector for the safe click that reveals it. For file_upload_probe, actively look for file inputs, "
+            "upload/avatar/attachment buttons, menu items, tabs, or profile controls that may reveal a file input; "
+            "set pre_action_selector to the safe reveal click and target_selector to the observed file input when known. "
+            "For open_redirect_probe, look for redirect, continue, callback, return, GitHub/external-link, login/logout, "
+            "and return-url surfaces; set target_parameter to the observed or likely redirect parameter name. "
             "Never include payloads or exploit strings in target hints.\n"
         )
 
@@ -344,7 +352,10 @@ def build_page_understanding_reasoner() -> PageUnderstandingReasoner:
 
 def build_session_conclusion_reasoner() -> OllamaSessionConclusionReasoner:
     base_url = str(get_runtime_setting("OLLAMA_BASE_URL", DEFAULT_OLLAMA_BASE_URL)).strip()
-    timeout = get_runtime_float("OLLAMA_TIMEOUT_SECONDS", DEFAULT_OLLAMA_TIMEOUT_SECONDS)
+    timeout = get_runtime_float(
+        "RED_AGENT_SESSION_CONCLUSION_TIMEOUT_SECONDS",
+        DEFAULT_SESSION_CONCLUSION_TIMEOUT_SECONDS,
+    )
     think = get_runtime_bool("OLLAMA_THINK", DEFAULT_OLLAMA_THINK)
     model = str(get_runtime_setting("RED_AGENT_VISION_MODEL", DEFAULT_VISION_MODEL)).strip()
     return OllamaSessionConclusionReasoner(

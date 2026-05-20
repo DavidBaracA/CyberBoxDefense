@@ -17,6 +17,7 @@ import {
   getBlueAgentModels,
   getBlueAgentWebSocketUrl,
   getDashboardSnapshot,
+  getRunStateWebSocketUrl,
   getRedAgentWebSocketUrl,
   getRunFormConfig,
   removeVulnerableApp,
@@ -49,6 +50,81 @@ function getLatestAttackType(detections) {
   return latest?.classification || latest?.predicted_attack_type || "No detections yet";
 }
 
+const liveRunStatuses = new Set(["pending", "starting", "running", "stopping"]);
+const telemetryConsoleRecentLimit = 20;
+let recentTelemetryConsoleEvents = [];
+
+function compactConsoleValue(value, fallback = "-") {
+  if (value === null || value === undefined || value === "") {
+    return fallback;
+  }
+  return String(value);
+}
+
+function telemetryConsoleRow(event, origin) {
+  return {
+    origin,
+    time: compactConsoleValue(event?.timestamp),
+    run_id: compactConsoleValue(event?.run_id),
+    source: compactConsoleValue(event?.source),
+    source_type: compactConsoleValue(event?.source_type),
+    kind: compactConsoleValue(event?.kind),
+    severity: compactConsoleValue(event?.severity),
+    container: compactConsoleValue(event?.container_name),
+    path: compactConsoleValue(event?.path),
+    status: compactConsoleValue(event?.http_status),
+    message: compactConsoleValue(event?.message),
+  };
+}
+
+function logTelemetryToPlatformConsole(event, origin = "dashboard") {
+  if (!event || typeof event !== "object") {
+    return;
+  }
+
+  const row = telemetryConsoleRow(event, origin);
+  recentTelemetryConsoleEvents = [...recentTelemetryConsoleEvents, row].slice(
+    -telemetryConsoleRecentLimit
+  );
+  // TODO: Remove this temporary browser-console telemetry logger before final/demo builds.
+  console.log("[CyberBoxDefense telemetry]", row, event);
+  console.table(recentTelemetryConsoleEvents);
+}
+
+function logTelemetryBatchToPlatformConsole(events, origin = "dashboard") {
+  safeArray(events).forEach((event) => logTelemetryToPlatformConsole(event, origin));
+}
+
+function latestMetricsFromRunState(runState) {
+  const latestRecord = safeArray(runState?.metrics_snapshots).at(-1);
+  return latestRecord?.snapshot || {};
+}
+
+function applyRunStateSnapshot(current, runState) {
+  if (!runState || typeof runState !== "object") {
+    return current;
+  }
+
+  const run = runState.run || null;
+  const isLiveRun = run && liveRunStatuses.has(run.status);
+
+  return {
+    ...current,
+    activeRun: isLiveRun ? run : null,
+    runs: run
+      ? [
+          ...safeArray(current.runs).filter((item) => item?.run_id !== run.run_id),
+          run,
+        ]
+      : current.runs,
+    telemetry: safeArray(runState.latest_telemetry_events),
+    detections: safeArray(runState.latest_detections),
+    metrics: latestMetricsFromRunState(runState),
+    blueAgentStatus: runState.latest_blue_status || current.blueAgentStatus,
+    redAgentStatus: runState.latest_red_status || current.redAgentStatus,
+  };
+}
+
 const initialState = {
   connection: { ok: false, label: "Checking connection", path: null },
   telemetry: [],
@@ -56,6 +132,8 @@ const initialState = {
   metrics: {},
   vulnerableApps: [],
   vulnerableAppTemplates: [],
+  runs: [],
+  activeRun: null,
   blueAgentStatus: {},
   blueAgentLogs: [],
   redAgentStatus: {},
@@ -174,13 +252,15 @@ export default function Dashboard() {
   const [selectedBlueModelId, setSelectedBlueModelId] = useState("gemma3:1b");
   const [isStartingBlueAgent, setIsStartingBlueAgent] = useState(false);
   const [isStoppingBlueAgent, setIsStoppingBlueAgent] = useState(false);
-  const [blueAgentStreamState, setBlueAgentStreamState] = useState("connecting");
+  const [blueAgentStreamState, setBlueAgentStreamState] = useState("idle");
   const [redAgentError, setRedAgentError] = useState("");
   const [isStartingRedAgent, setIsStartingRedAgent] = useState(false);
   const [isStoppingRedAgent, setIsStoppingRedAgent] = useState(false);
-  const [redAgentStreamState, setRedAgentStreamState] = useState("connecting");
+  const [redAgentStreamState, setRedAgentStreamState] = useState("idle");
   const [runFormConfig, setRunFormConfig] = useState(null);
   const [agentDebugEntries, setAgentDebugEntries] = useState([]);
+  const activeRun = state.activeRun;
+  const liveRunId = activeRun?.run_id || null;
 
   function appendAgentDebug(source, label, payload) {
     const filteredPayload = extractOllamaDebugEntry(payload);
@@ -200,6 +280,7 @@ export default function Dashboard() {
 
   async function refresh() {
     const snapshot = await getDashboardSnapshot();
+    logTelemetryBatchToPlatformConsole(safeArray(snapshot.telemetry).slice(-5), "api-snapshot");
     appendAgentDebug("api", "getDashboardSnapshot", {
       redAgentStatus: snapshot.redAgentStatus || {},
       blueAgentStatus: snapshot.blueAgentStatus || {},
@@ -212,6 +293,8 @@ export default function Dashboard() {
       detections: safeArray(snapshot.detections),
       vulnerableApps: safeArray(snapshot.vulnerableApps),
       vulnerableAppTemplates: safeArray(snapshot.vulnerableAppTemplates),
+      runs: safeArray(snapshot.runs),
+      activeRun: snapshot.activeRun || null,
       blueAgentStatus: snapshot.blueAgentStatus || current.blueAgentStatus || {},
       blueAgentLogs: current.blueAgentLogs,
       redAgentStatus: snapshot.redAgentStatus || current.redAgentStatus || {},
@@ -227,7 +310,7 @@ export default function Dashboard() {
   useEffect(() => {
     let isMounted = true;
 
-    async function refreshSafely() {
+    async function loadInitialDashboard() {
       try {
         await refresh();
         const config = await getRunFormConfig();
@@ -253,16 +336,18 @@ export default function Dashboard() {
       }
     }
 
-    refreshSafely();
-    const timerId = window.setInterval(refreshSafely, 3000);
+    loadInitialDashboard();
 
     return () => {
       isMounted = false;
-      window.clearInterval(timerId);
     };
   }, []);
 
   useEffect(() => {
+    if (!liveRunId) {
+      return undefined;
+    }
+
     let socket;
     let retryId;
     let isClosed = false;
@@ -272,13 +357,131 @@ export default function Dashboard() {
         return;
       }
 
+      socket = new WebSocket(getRunStateWebSocketUrl(liveRunId));
+
+      socket.onopen = () => {
+        appendAgentDebug("ws-run", "socket open", {
+          streamState: "connected",
+          run_id: liveRunId,
+        });
+      };
+
+      socket.onmessage = (event) => {
+        let payload;
+        try {
+          payload = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+
+        if (payload?.type === "snapshot" && payload.state) {
+          logTelemetryBatchToPlatformConsole(
+            safeArray(payload.state.latest_telemetry_events).slice(-5),
+            "ws-snapshot"
+          );
+          setState((current) => applyRunStateSnapshot(current, payload.state));
+          return;
+        }
+
+        if (payload?.type === "telemetry" && payload.event) {
+          logTelemetryToPlatformConsole(payload.event, "ws-telemetry");
+          setState((current) => ({
+            ...current,
+            telemetry: [...safeArray(current.telemetry), payload.event].slice(-200),
+          }));
+          return;
+        }
+
+        if (payload?.type === "detection" && payload.event) {
+          setState((current) => ({
+            ...current,
+            detections: [...safeArray(current.detections), payload.event].slice(-200),
+          }));
+          return;
+        }
+
+        if (payload?.type === "metrics" && payload.snapshot) {
+          setState((current) => ({
+            ...current,
+            metrics: payload.snapshot,
+          }));
+          return;
+        }
+
+        if (payload?.type === "run_status" && payload.run) {
+          setState((current) => {
+            const isLiveRun = liveRunStatuses.has(payload.run.status);
+            return {
+              ...current,
+              activeRun: isLiveRun ? payload.run : null,
+              runs: [
+                ...safeArray(current.runs).filter((run) => run?.run_id !== payload.run.run_id),
+                payload.run,
+              ],
+            };
+          });
+        }
+      };
+
+      socket.onerror = () => {
+        appendAgentDebug("ws-run", "socket error", {
+          streamState: "disconnected",
+          run_id: liveRunId,
+        });
+      };
+
+      socket.onclose = () => {
+        if (isClosed) {
+          return;
+        }
+        appendAgentDebug("ws-run", "socket close", {
+          streamState: "disconnected",
+          run_id: liveRunId,
+        });
+        retryId = window.setTimeout(connect, 3000);
+      };
+    }
+
+    connect();
+
+    return () => {
+      isClosed = true;
+      if (retryId) {
+        window.clearTimeout(retryId);
+      }
+      if (socket) {
+        socket.close();
+      }
+    };
+  }, [liveRunId]);
+
+  useEffect(() => {
+    let socket;
+    let retryId;
+    let isClosed = false;
+
+    if (!liveRunId) {
+      setRedAgentStreamState("idle");
+      return () => {
+        isClosed = true;
+      };
+    }
+
+    function connect() {
+      if (isClosed) {
+        return;
+      }
+
       setRedAgentStreamState("connecting");
-      socket = new WebSocket(getRedAgentWebSocketUrl());
+      socket = new WebSocket(getRedAgentWebSocketUrl(liveRunId));
 
       socket.onopen = () => {
         if (!isClosed) {
           setRedAgentStreamState("connected");
-          appendAgentDebug("ws-red", "socket open", { streamState: "connected" });
+          appendAgentDebug("ws-red", "socket open", {
+            streamState: "connected",
+            run_id: liveRunId,
+          });
         }
       };
 
@@ -343,7 +546,10 @@ export default function Dashboard() {
           return;
         }
         setRedAgentStreamState("disconnected");
-        appendAgentDebug("ws-red", "socket close", { streamState: "disconnected" });
+        appendAgentDebug("ws-red", "socket close", {
+          streamState: "disconnected",
+          run_id: liveRunId,
+        });
         retryId = window.setTimeout(connect, 3000);
       };
     }
@@ -360,12 +566,19 @@ export default function Dashboard() {
         socket.close();
       }
     };
-  }, []);
+  }, [liveRunId]);
 
   useEffect(() => {
     let socket;
     let retryId;
     let isClosed = false;
+
+    if (!liveRunId) {
+      setBlueAgentStreamState("idle");
+      return () => {
+        isClosed = true;
+      };
+    }
 
     function connect() {
       if (isClosed) {
@@ -373,12 +586,15 @@ export default function Dashboard() {
       }
 
       setBlueAgentStreamState("connecting");
-      socket = new WebSocket(getBlueAgentWebSocketUrl());
+      socket = new WebSocket(getBlueAgentWebSocketUrl(liveRunId));
 
       socket.onopen = () => {
         if (!isClosed) {
           setBlueAgentStreamState("connected");
-          appendAgentDebug("ws-blue", "socket open", { streamState: "connected" });
+          appendAgentDebug("ws-blue", "socket open", {
+            streamState: "connected",
+            run_id: liveRunId,
+          });
         }
       };
 
@@ -443,7 +659,10 @@ export default function Dashboard() {
           return;
         }
         setBlueAgentStreamState("disconnected");
-        appendAgentDebug("ws-blue", "socket close", { streamState: "disconnected" });
+        appendAgentDebug("ws-blue", "socket close", {
+          streamState: "disconnected",
+          run_id: liveRunId,
+        });
         retryId = window.setTimeout(connect, 3000);
       };
     }
@@ -460,7 +679,7 @@ export default function Dashboard() {
         socket.close();
       }
     };
-  }, []);
+  }, [liveRunId]);
 
   async function handleDeploy(payload) {
     setIsSubmittingDeploy(true);
@@ -590,33 +809,17 @@ export default function Dashboard() {
         </section>
       ) : null}
 
-      <section className="summary-grid">
-        <SummaryCard
-          label="Total Telemetry Events"
-          value={telemetryCount}
-          detail="Indirect observability from the app or monitoring layer."
-        />
-        <SummaryCard
-          label="Total Detections"
-          value={detectionCount}
-          detail="Blue-side outputs available for the current run."
-        />
-        <SummaryCard
-          label="Latest Predicted Attack"
-          value={latestAttackType}
-          detail="Uses the newest available detection classification."
-        />
-        <SummaryCard
-          label="Current MTTD"
-          value={safeMetric(state.metrics?.mean_time_to_detection_seconds)}
-          detail="Displayed in seconds when the backend provides the metric."
-        />
-      </section>
-
-      <section className="content-grid">
-        <TelemetryList items={state.telemetry} />
-        <DetectionList items={state.detections} />
-      </section>
+      <VulnerableAppsPanel
+        apps={state.vulnerableApps}
+        templates={state.vulnerableAppTemplates}
+        isLoading={appsLoading}
+        isActing={isActingOnApp}
+        error={appsError}
+        onOpenDeploy={() => setIsDeployModalOpen(true)}
+        onStop={(appId) => handleAction(() => stopVulnerableApp(appId))}
+        onRestart={(appId) => handleAction(() => restartVulnerableApp(appId))}
+        onRemove={(appId) => handleAction(() => removeVulnerableApp(appId))}
+      />
 
       <section className="agent-grid">
         <RedAgentPanel
@@ -678,19 +881,35 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <MetricsPanel metrics={state.metrics} />
+      <section className="summary-grid">
+        <SummaryCard
+          label="Total Telemetry Events"
+          value={telemetryCount}
+          detail="Indirect observability from the app or monitoring layer."
+        />
+        <SummaryCard
+          label="Total Detections"
+          value={detectionCount}
+          detail="Blue-side outputs available for the current run."
+        />
+        <SummaryCard
+          label="Latest Predicted Attack"
+          value={latestAttackType}
+          detail="Uses the newest available detection classification."
+        />
+        <SummaryCard
+          label="Current MTTD"
+          value={safeMetric(state.metrics?.mean_time_to_detection_seconds)}
+          detail="Displayed in seconds when the backend provides the metric."
+        />
+      </section>
 
-      <VulnerableAppsPanel
-        apps={state.vulnerableApps}
-        templates={state.vulnerableAppTemplates}
-        isLoading={appsLoading}
-        isActing={isActingOnApp}
-        error={appsError}
-        onOpenDeploy={() => setIsDeployModalOpen(true)}
-        onStop={(appId) => handleAction(() => stopVulnerableApp(appId))}
-        onRestart={(appId) => handleAction(() => restartVulnerableApp(appId))}
-        onRemove={(appId) => handleAction(() => removeVulnerableApp(appId))}
-      />
+      <section className="content-grid">
+        <TelemetryList items={state.telemetry} />
+        <DetectionList items={state.detections} />
+      </section>
+
+      <MetricsPanel metrics={state.metrics} />
 
       <DeployAppModal
         isOpen={isDeployModalOpen}

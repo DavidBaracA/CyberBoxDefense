@@ -374,9 +374,43 @@ h2 {
   gap: 0.8rem;
 }
 
+.metrics-agent-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.metrics-overall-section {
+  margin-top: 1rem;
+}
+
+.metrics-section {
+  min-width: 0;
+  border-radius: 14px;
+  border: 1px solid rgba(111, 193, 255, 0.12);
+  background: rgba(5, 11, 18, 0.54);
+  padding: 0.85rem;
+}
+
+.metrics-section h3 {
+  margin: 0 0 0.45rem;
+  color: #d7edf9;
+  font-size: 0.92rem;
+}
+
 .metric-row {
   padding: 0.8rem 0.2rem;
   border-bottom: 1px solid rgba(111, 193, 255, 0.1);
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  min-width: 0;
+}
+
+.metric-row span,
+.metric-row strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .metric-row:last-child {
@@ -390,6 +424,69 @@ h2 {
 .vulnerable-apps-panel {
   padding: 1rem;
   margin-top: 1rem;
+}
+
+.vulnerable-apps-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.vulnerable-apps-table {
+  width: 100%;
+  min-width: 980px;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.vulnerable-apps-table th,
+.vulnerable-apps-table td {
+  padding: 0.85rem 0.9rem;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid rgba(111, 193, 255, 0.1);
+}
+
+.vulnerable-apps-table th {
+  color: var(--text-soft);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.vulnerable-apps-table th:nth-child(1),
+.vulnerable-apps-table td:nth-child(1) {
+  width: 15%;
+}
+
+.vulnerable-apps-table th:nth-child(2),
+.vulnerable-apps-table td:nth-child(2) {
+  width: 18%;
+}
+
+.vulnerable-apps-table th:nth-child(3),
+.vulnerable-apps-table td:nth-child(3) {
+  width: 13%;
+}
+
+.vulnerable-apps-table th:nth-child(4),
+.vulnerable-apps-table td:nth-child(4) {
+  width: 6%;
+}
+
+.vulnerable-apps-table th:nth-child(5),
+.vulnerable-apps-table td:nth-child(5) {
+  width: 23%;
+}
+
+.vulnerable-apps-table th:nth-child(6),
+.vulnerable-apps-table td:nth-child(6) {
+  width: 25%;
+}
+
+.vulnerable-apps-table td,
+.vulnerable-apps-table a {
+  overflow-wrap: anywhere;
 }
 
 .red-agent-panel,
@@ -697,6 +794,28 @@ a:hover {
   padding: 0.75rem 0.85rem;
 }
 
+.form-field select:disabled {
+  opacity: 0.62;
+}
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--text-soft);
+}
+
+.checkbox-field input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--accent);
+}
+
+.custom-image-fields {
+  display: grid;
+  gap: 0.75rem;
+}
+
 .form-actions {
   display: flex;
   justify-content: flex-end;
@@ -736,6 +855,7 @@ a:hover {
 .red-sessions-sidebar,
 .red-sessions-content {
   padding: 0.9rem;
+  min-width: 0;
 }
 
 .red-session-list {
@@ -768,19 +888,50 @@ a:hover {
 .session-detail {
   display: grid;
   gap: 1rem;
+  min-width: 0;
 }
 
 .session-detail-summary,
 .session-vulnerability-card,
 .session-metadata-item {
   padding: 0.95rem;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .session-summary-grid,
 .session-metadata-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   gap: 0.8rem;
+  min-width: 0;
+}
+
+.session-detail-summary strong,
+.session-vulnerability-card p,
+.session-vulnerability-card strong,
+.session-gallery-thumb span,
+.session-metadata-item strong,
+.session-metadata-item span,
+.session-gallery .panel-copy,
+.session-detail .panel-copy {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.session-vulnerability-card p,
+.session-metadata-item strong {
+  max-height: 12rem;
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+
+.session-metadata-item strong {
+  display: block;
+  white-space: pre-wrap;
+  font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+  font-size: 0.82rem;
+  line-height: 1.45;
 }
 
 .session-summary-label {
@@ -930,6 +1081,10 @@ a:hover {
   }
 
   .red-sessions-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .metrics-agent-grid {
     grid-template-columns: 1fr;
   }
 }

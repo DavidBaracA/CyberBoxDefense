@@ -12,9 +12,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
+from urllib.parse import quote
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 def utc_now() -> datetime:
@@ -26,6 +27,7 @@ class SupportedTemplate(str, Enum):
     JUICE_SHOP = "juice_shop"
     DVWA = "dvwa"
     CRAPI = "crapi"
+    CUSTOM = "custom"
 
 
 class DeploymentType(str, Enum):
@@ -42,11 +44,14 @@ class VulnerableAppStatus(str, Enum):
 
 
 class VulnerableAppDeployRequest(BaseModel):
-    """Request for deploying a predefined vulnerable app template."""
+    """Request for deploying a predefined template or custom Docker image."""
 
     template_id: SupportedTemplate
     name: str = Field(min_length=1, max_length=100)
     port: int = Field(ge=1, le=65535)
+    custom_image_name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    container_port: Optional[int] = Field(default=None, ge=1, le=65535)
+    target_path: Optional[str] = Field(default=None, max_length=200)
 
     @field_validator("name")
     @classmethod
@@ -55,6 +60,38 @@ class VulnerableAppDeployRequest(BaseModel):
         if not cleaned:
             raise ValueError("name must not be empty")
         return cleaned
+
+    @field_validator("custom_image_name")
+    @classmethod
+    def strip_custom_image_name(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    @field_validator("target_path")
+    @classmethod
+    def normalize_target_path(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        if not cleaned.startswith("/"):
+            cleaned = f"/{cleaned}"
+        if any(character.isspace() for character in cleaned):
+            raise ValueError("target_path must not contain whitespace")
+        path, separator, query = cleaned.partition("?")
+        encoded_path = quote(path, safe="/%:@-._~!$&'()*+,;=")
+        return f"{encoded_path}{separator}{query}" if separator else encoded_path
+
+    @model_validator(mode="after")
+    def validate_custom_image_request(self) -> "VulnerableAppDeployRequest":
+        if self.template_id != SupportedTemplate.CUSTOM:
+            return self
+        if not self.custom_image_name:
+            raise ValueError("custom_image_name is required for custom Docker image deployments")
+        return self
 
 
 class VulnerableAppTemplate(BaseModel):
@@ -83,6 +120,7 @@ class VulnerableAppSummary(BaseModel):
     deployment_type: DeploymentType
     status: VulnerableAppStatus
     port: int
+    container_port: Optional[int] = None
     host_ports: dict[str, int] = Field(default_factory=dict)
     runtime_identifier: str
     container_name: Optional[str] = None

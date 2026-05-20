@@ -100,6 +100,9 @@ class MetricSnapshot(BaseModel):
     telemetry_event_count: int = 0
     detection_count: int = 0
     attack_ground_truth_count: int = 0
+    red: dict[str, Any] = Field(default_factory=dict)
+    blue: dict[str, Any] = Field(default_factory=dict)
+    overall: dict[str, Any] = Field(default_factory=dict)
 
 
 class ActionEvent(BaseModel):

@@ -57,12 +57,27 @@ class TemplateHandler:
 class SingleContainerTemplateHandler(TemplateHandler):
     """Handler for simple single-container templates."""
 
+    def _internal_port_for_request(self, request: VulnerableAppDeployRequest) -> int:
+        if request.template_id == SupportedTemplate.CUSTOM:
+            image_name = self._image_name_for_request(request)
+            return request.container_port or self.service.detect_container_port(image_name)
+        return self.template.container_ports[0]
+
+    def _image_name_for_request(self, request: VulnerableAppDeployRequest) -> str:
+        image_name = request.custom_image_name if request.template_id == SupportedTemplate.CUSTOM else self.template.image_name
+        if not image_name:
+            raise HTTPException(status_code=400, detail="Docker image name is required.")
+        return image_name
+
     def deploy(self, request: VulnerableAppDeployRequest) -> VulnerableAppDetail:
         self.service.ensure_port_available(request.port)
 
         app_id = str(uuid4())
         container_name = self.service.build_container_name(request, app_id)
-        internal_port = self.template.container_ports[0]
+        internal_port = self._internal_port_for_request(request)
+        image_name = self._image_name_for_request(request)
+
+        self.service.validate_image_name(image_name)
 
         result = self.service._run_docker_command(
             [
@@ -72,7 +87,7 @@ class SingleContainerTemplateHandler(TemplateHandler):
                 container_name,
                 "-p",
                 f"{request.port}:{internal_port}",
-                self.template.image_name,
+                image_name,
             ]
         )
 
@@ -84,6 +99,7 @@ class SingleContainerTemplateHandler(TemplateHandler):
             )
 
         container_id = result.stdout.strip() or None
+        target_path = request.target_path if request.template_id == SupportedTemplate.CUSTOM else None
         return VulnerableAppDetail(
             app_id=app_id,
             name=request.name,
@@ -92,17 +108,21 @@ class SingleContainerTemplateHandler(TemplateHandler):
             deployment_type=self.template.deployment_type,
             status=VulnerableAppStatus.RUNNING,
             port=request.port,
+            container_port=internal_port,
             host_ports={"primary": request.port},
             runtime_identifier=container_name,
             container_name=container_name,
-            target_url=f"http://localhost:{request.port}",
-            image_name=self.template.image_name,
+            target_url=f"http://localhost:{request.port}{target_path or ''}",
+            image_name=image_name,
             container_id=container_id,
             status_notes=self.template.status_notes,
         )
 
     def _run_new_container(self, app: VulnerableAppDetail) -> Optional[str]:
-        internal_port = self.template.container_ports[0]
+        internal_port = app.container_port or self.template.container_ports[0]
+        image_name = app.image_name or self.template.image_name
+        if not image_name:
+            raise HTTPException(status_code=400, detail=f"App {app.app_id} does not have a Docker image name.")
         result = self.service._run_docker_command(
             [
                 "run",
@@ -111,7 +131,7 @@ class SingleContainerTemplateHandler(TemplateHandler):
                 app.container_name,
                 "-p",
                 f"{app.port}:{internal_port}",
-                app.image_name or self.template.image_name,
+                image_name,
             ]
         )
         if result.returncode != 0:
@@ -217,13 +237,13 @@ class CrAPITemplateHandler(TemplateHandler):
         return compose_file
 
     def _mailhog_port(self, primary_port: int) -> int:
-        candidate = primary_port + 1
-        if candidate > 65535:
+        start_port = primary_port + 1
+        if start_port > 65535:
             raise HTTPException(
                 status_code=400,
                 detail="crAPI requires an additional MailHog port, but no valid companion port is available.",
             )
-        return candidate
+        return self.service.find_available_port(start_port, excluded_ports={primary_port})
 
     def deploy(self, request: VulnerableAppDeployRequest) -> VulnerableAppDetail:
         compose_file = self._ensure_compose_ready()
@@ -422,17 +442,105 @@ class DeploymentService:
 
     def ensure_port_available(self, port: int) -> None:
         """Fail fast if the requested localhost port is already in use."""
+        if not self.is_port_available(port):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Port {port} is already in use. Choose a different port.",
+            )
+
+    def is_port_available(self, port: int) -> bool:
+        """Return whether the localhost port is currently free to bind."""
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.settimeout(0.5)
-            if sock.connect_ex(("127.0.0.1", port)) == 0:
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"Port {port} is already in use. Choose a different port.",
-                )
+            return sock.connect_ex(("127.0.0.1", port)) != 0
+
+    def find_available_port(self, start_port: int, excluded_ports: Optional[set[int]] = None) -> int:
+        """Find the first free localhost port at or above the requested start."""
+        excluded_ports = excluded_ports or set()
+        for candidate in range(start_port, 65536):
+            if candidate in excluded_ports:
+                continue
+            if self.is_port_available(candidate):
+                return candidate
+        raise HTTPException(
+            status_code=409,
+            detail=f"No available port was found at or above {start_port}. Choose a different port.",
+        )
 
     def _safe_slug(self, name: str) -> str:
         cleaned = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
         return cleaned or "target"
+
+    def validate_image_name(self, image_name: str) -> None:
+        """Reject shell-like or malformed image references before passing them to Docker."""
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}", image_name):
+            raise HTTPException(
+                status_code=400,
+                detail="Docker image must be a valid image reference such as my-app:latest.",
+            )
+
+    def detect_container_port(self, image_name: str) -> int:
+        """Infer the primary container port from image metadata."""
+        self.validate_image_name(image_name)
+        payload = self._inspect_image_exposed_ports(image_name)
+        if payload is None:
+            pull_result = self._run_docker_command(["pull", image_name])
+            if pull_result.returncode != 0:
+                detail = pull_result.stderr.strip() or pull_result.stdout.strip() or "Docker could not pull the image."
+                raise HTTPException(status_code=502, detail=f"Could not inspect or pull {image_name}: {detail}")
+            payload = self._inspect_image_exposed_ports(image_name)
+
+        ports = self._parse_exposed_ports(payload)
+        if not ports:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Docker image {image_name} does not declare an exposed port. "
+                    "Enter the container port from the image documentation."
+                ),
+            )
+
+        preferred_ports = [80, 8080, 3000, 5000, 8000, 8081, 9090]
+        for preferred_port in preferred_ports:
+            if preferred_port in ports:
+                return preferred_port
+        if len(ports) == 1:
+            return ports[0]
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Docker image {image_name} exposes multiple ports: {', '.join(str(port) for port in ports)}. "
+                "Choose the app's container port."
+            ),
+        )
+
+    def _inspect_image_exposed_ports(self, image_name: str) -> Optional[str]:
+        result = self._run_docker_command(
+            ["image", "inspect", image_name, "--format", "{{json .Config.ExposedPorts}}"]
+        )
+        if result.returncode != 0:
+            return None
+        return result.stdout.strip()
+
+    def _parse_exposed_ports(self, payload: Optional[str]) -> list[int]:
+        if not payload or payload == "null":
+            return []
+        try:
+            parsed = json.loads(payload)
+        except json.JSONDecodeError:
+            return []
+        if not isinstance(parsed, dict):
+            return []
+        ports: list[int] = []
+        for raw_port in parsed:
+            port_text = str(raw_port).split("/", 1)[0]
+            try:
+                port = int(port_text)
+            except ValueError:
+                continue
+            if 1 <= port <= 65535:
+                ports.append(port)
+        return sorted(set(ports))
 
     def build_container_name(self, request: VulnerableAppDeployRequest, app_id: str) -> str:
         """Generate a deterministic local container name for the app."""
@@ -447,6 +555,18 @@ class DeploymentService:
         return list_enabled_templates()
 
     def _get_handler(self, template_id: SupportedTemplate) -> TemplateHandler:
+        if template_id == SupportedTemplate.CUSTOM:
+            template = VulnerableAppTemplate(
+                template_id=SupportedTemplate.CUSTOM,
+                display_name="Custom Docker Image",
+                description="Operator-provided single-container Docker target.",
+                deployment_type=DeploymentType.DOCKER_RUN,
+                default_port=8080,
+                container_ports=[8080],
+                enabled_for_ui=False,
+                status_notes="Custom Docker image managed by CyberBoxDefense.",
+            )
+            return SingleContainerTemplateHandler(self, template)
         template = get_template(template_id)
         if template.deployment_type == DeploymentType.DOCKER_RUN:
             return SingleContainerTemplateHandler(self, template)

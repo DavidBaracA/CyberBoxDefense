@@ -154,7 +154,7 @@ services:
       POSTGRES_PASSWORD: crapisecretpassword
       POSTGRES_DB: crapi
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready"]
+      test: ["CMD-SHELL", "pg_isready -U admin -d crapi"]
       interval: 15s
       timeout: 15s
       retries: 15

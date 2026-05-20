@@ -230,45 +230,40 @@ export default function RedAgentSessionsModal({ isOpen, onClose }) {
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [error, setError] = useState("");
 
+  async function loadSessions() {
+    setIsLoadingList(true);
+    setIsLoadingDetail(true);
+    setError("");
+
+    try {
+      const items = await getRedAgentSessions();
+      setSessions(items);
+      const nextSessionId = items[0]?.session_id || "";
+      setSelectedSessionId(nextSessionId);
+      if (!nextSessionId) {
+        setSelectedSession(null);
+        return;
+      }
+      const detail = await getRedAgentSessionDetail(nextSessionId);
+      setSelectedSession(detail);
+    } catch (fetchError) {
+      setError(fetchError.message);
+      setSessions([]);
+      setSelectedSessionId("");
+      setSelectedSession(null);
+    } finally {
+      setIsLoadingList(false);
+      setIsLoadingDetail(false);
+    }
+  }
+
   useEffect(() => {
     if (!isOpen) {
       return undefined;
     }
 
-    let isActive = true;
-    setIsLoadingList(true);
-    setError("");
-
-    getRedAgentSessions()
-      .then((items) => {
-        if (!isActive) {
-          return;
-        }
-        setSessions(items);
-        const nextSessionId = items[0]?.session_id || "";
-        setSelectedSessionId(nextSessionId);
-        if (!nextSessionId) {
-          setSelectedSession(null);
-        }
-      })
-      .catch((fetchError) => {
-        if (!isActive) {
-          return;
-        }
-        setError(fetchError.message);
-        setSessions([]);
-        setSelectedSessionId("");
-        setSelectedSession(null);
-      })
-      .finally(() => {
-        if (isActive) {
-          setIsLoadingList(false);
-        }
-      });
-
-    return () => {
-      isActive = false;
-    };
+    loadSessions();
+    return undefined;
   }, [isOpen]);
 
   useEffect(() => {
@@ -333,7 +328,20 @@ export default function RedAgentSessionsModal({ isOpen, onClose }) {
 
         <div className="red-sessions-layout">
           <aside className="red-sessions-sidebar">
-            <SectionHeading title="Completed Sessions" copy="Newest sessions appear first." />
+            <div className="panel-header panel-header-row">
+              <div>
+                <h3>Completed Sessions</h3>
+                <p className="panel-copy">Newest sessions appear first.</p>
+              </div>
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={loadSessions}
+                disabled={isLoadingList}
+              >
+                Refresh
+              </button>
+            </div>
             {isLoadingList ? <p className="empty-state">Loading completed sessions...</p> : null}
             {!isLoadingList && sessions.length === 0 ? (
               <p className="empty-state">No completed Red-agent sessions are available yet.</p>

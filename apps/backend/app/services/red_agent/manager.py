@@ -15,7 +15,7 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 
-from ...models import ActionEvent, AttackGroundTruth, Severity, TelemetryEvent, TelemetryKind, TelemetrySource
+from ...models import ActionEvent, AttackGroundTruth
 from ...runtime_settings import get_runtime_float
 from ...red_agent_models import (
     AttackExecutionPlan,
@@ -68,7 +68,6 @@ class RedAgentManager:
         self,
         running_targets_provider: Callable[[], list[VulnerableAppDetail]],
         run_service: RunService,
-        telemetry_callback: Callable[[TelemetryEvent], TelemetryEvent],
         ground_truth_callback: Callable[[AttackGroundTruth], AttackGroundTruth],
         action_callback: Optional[Callable[[ActionEvent], ActionEvent]] = None,
         planner: Optional[AttackPlanner] = None,
@@ -78,7 +77,6 @@ class RedAgentManager:
     ) -> None:
         self._running_targets_provider = running_targets_provider
         self._run_service = run_service
-        self._telemetry_callback = telemetry_callback
         self._ground_truth_callback = ground_truth_callback
         self._action_callback = action_callback
         self._planner = planner or AttackPlanner()
@@ -159,6 +157,16 @@ class RedAgentManager:
                 legacy={"type": "debug", "entry": payload},
             )
         )
+
+    def _record_session_debug(self, payload: dict[str, object]) -> None:
+        if self._current_session is None:
+            return
+        debug_entries = self._current_session.metadata.setdefault("browser_scenario_debug", [])
+        if not isinstance(debug_entries, list):
+            debug_entries = []
+            self._current_session.metadata["browser_scenario_debug"] = debug_entries
+        debug_entries.append(payload)
+        self._current_session.metadata["browser_scenario_debug"] = debug_entries[-20:]
 
     def _stream_event(
         self,
@@ -342,7 +350,7 @@ class RedAgentManager:
             )
         )
 
-    def _emit_observable_telemetry(
+    def _record_browser_observation(
         self,
         run_id: str,
         target: VulnerableAppDetail,
@@ -351,27 +359,17 @@ class RedAgentManager:
         status_code: int,
         response_size: int,
     ) -> None:
-        is_error = status_code >= 400
-        self._telemetry_callback(
-            TelemetryEvent(
-                run_id=run_id,
-                app_id=target.app_id,
-                source=TelemetrySource.CONTAINER_MONITOR,
-                source_type="red_browser_observable",
-                kind=TelemetryKind.HTTP_ERROR if is_error else TelemetryKind.ACCESS_LOG,
-                severity=Severity.WARNING if (is_error or status_code == 0) else Severity.INFO,
-                container_name=target.container_name or target.name,
-                service_name=target.name,
-                path=path,
-                http_status=status_code or None,
-                message=(
-                    f"Observed {method} traffic to monitored target route with HTTP {status_code}."
-                ),
-                metadata={
-                    "response_size": response_size,
-                    "method": method,
-                },
-            )
+        self._record_action(
+            "browser_observation_recorded",
+            target_id=target.app_id,
+            run_id=run_id,
+            details={
+                "path": path,
+                "method": method,
+                "status_code": status_code,
+                "response_size": response_size,
+                "target_name": target.name,
+            },
         )
 
     def _perform_browser_scenario(
@@ -383,6 +381,7 @@ class RedAgentManager:
         pre_action_selector: Optional[str] = None,
         target_selector: Optional[str] = None,
         target_parameter: Optional[str] = None,
+        storage_state_path: Optional[str] = None,
     ) -> dict[str, object]:
         repo_root = Path(__file__).resolve().parents[5]
         frontend_dir = repo_root / "apps" / "frontend"
@@ -402,6 +401,8 @@ class RedAgentManager:
                 "CYBERBOX_TARGET_PARAMETER": target_parameter or "",
             }
         )
+        if storage_state_path:
+            env["CYBERBOX_BROWSER_STORAGE_STATE"] = storage_state_path
         timeout_seconds = get_runtime_float(
             "RED_AGENT_BROWSER_SCENARIO_TIMEOUT_SECONDS",
             DEFAULT_BROWSER_SCENARIO_TIMEOUT_SECONDS,
@@ -424,10 +425,17 @@ class RedAgentManager:
             stderr = completed.stderr.strip() or completed.stdout.strip() or "Unknown Playwright runner failure."
             raise RuntimeError(stderr)
 
+        stdout_lines = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+        json_candidate = stdout_lines[-1] if stdout_lines else ""
         try:
-            return json.loads(completed.stdout.strip())
+            return json.loads(json_candidate)
         except json.JSONDecodeError as exc:
-            raise RuntimeError("Playwright runner returned invalid JSON.") from exc
+            stdout_excerpt = completed.stdout.strip()[-1000:] or "<empty>"
+            stderr_excerpt = completed.stderr.strip()[-1000:] or "<empty>"
+            raise RuntimeError(
+                "Playwright runner returned invalid JSON. "
+                f"stdout tail: {stdout_excerpt} stderr tail: {stderr_excerpt}"
+            ) from exc
 
     def _artifact_url_for_path(self, artifact_path: str) -> str:
         artifact_name = Path(artifact_path).name
@@ -521,6 +529,7 @@ class RedAgentManager:
         session = self._current_session
         if session is None:
             return
+        fallback_summary = f"Red session completed against {target.name}."
         try:
             analyzed_pages = [
                 {
@@ -550,6 +559,10 @@ class RedAgentManager:
                 }
                 for vulnerability in session.vulnerabilities
             ]
+            fallback_summary = (
+                f"Red session completed {len(self._state.completed_techniques)} planned technique(s) "
+                f"against {target.name}; recorded {len(vulnerabilities)} vulnerability signal(s)."
+            )
             reasoner = build_session_conclusion_reasoner()
             decision = reasoner.summarize_session(
                 SessionConclusionInput(
@@ -590,7 +603,17 @@ class RedAgentManager:
                     }
                 )
         except Exception as exc:
-            self._append_log(f"LLM session conclusion failed: {exc}", level="warning")
+            session.summary = session.summary or fallback_summary
+            session.metadata.update(
+                {
+                    "session_conclusion": session.summary,
+                    "session_conclusion_error": str(exc),
+                }
+            )
+            self._append_log(
+                f"LLM session conclusion skipped after timeout/error; using deterministic summary. Reason: {exc}",
+                level="info",
+            )
 
     def _apply_planned_execution_state(
         self,
@@ -696,24 +719,139 @@ class RedAgentManager:
         scenario_name: str,
         location: str,
         evidence: str,
+        severity: str = "high",
+        vulnerability_type: Optional[str] = None,
+        title: Optional[str] = None,
     ) -> None:
         if self._current_session is None:
             return
-        vulnerability_type = "credential_attack" if scenario_id == "brute_force_login" else scenario_id
-        vulnerability_title = (
+        resolved_type = vulnerability_type or ("credential_attack" if scenario_id == "brute_force_login" else scenario_id)
+        vulnerability_title = title or (
             "Login brute-force vulnerability signal"
             if scenario_id == "brute_force_login"
             else f"{scenario_name} vulnerability signal"
         )
         vulnerability = RedAgentSessionVulnerability(
             scenario_id=scenario_id,
-            type=vulnerability_type,
+            type=resolved_type,
             title=vulnerability_title,
-            severity="high",
+            severity=severity,
             location=location,
             evidence=evidence,
         )
         self._current_session.vulnerabilities.append(vulnerability)
+
+    def _record_session_probe_findings(
+        self,
+        *,
+        scenario_id: str,
+        scenario_name: str,
+        target_url: str,
+        findings: list[object],
+    ) -> None:
+        for finding in findings:
+            if not isinstance(finding, dict):
+                continue
+            evidence_payload = {
+                "description": finding.get("description"),
+                "category": finding.get("category"),
+                "cwe": finding.get("cwe"),
+                "confidence": finding.get("confidence"),
+                "evidence": finding.get("evidence"),
+                "remediation": finding.get("remediation"),
+                "raw_http": finding.get("raw_http"),
+            }
+            evidence_text = json.dumps(evidence_payload, ensure_ascii=True, default=str)
+            location = target_url
+            evidence = finding.get("evidence")
+            if isinstance(evidence, dict):
+                location = str(
+                    evidence.get("tested_url")
+                    or evidence.get("returned_upload_url")
+                    or target_url
+                )
+            title = str(finding.get("description") or f"{scenario_name} vulnerability signal")
+            self._record_session_vulnerability(
+                scenario_id=scenario_id,
+                scenario_name=scenario_name,
+                location=location,
+                evidence=evidence_text,
+                severity=str(finding.get("severity") or "high"),
+                vulnerability_type=str(finding.get("probe_name") or scenario_id),
+                title=title,
+            )
+
+    def _browser_storage_state_path(self, run_id: str) -> str:
+        repo_root = Path(__file__).resolve().parents[5]
+        return str(repo_root / "apps" / "frontend" / "test-results" / "red-agent" / f"{run_id}-browser-state.json")
+
+    def _refresh_remaining_techniques_from_analysis(
+        self,
+        *,
+        remaining_techniques: list[AttackTechniquePlan],
+        analysis,
+        fallback_page_url: str,
+    ) -> None:
+        recommendation_by_id = {
+            recommendation.scenario_id: recommendation
+            for recommendation in analysis.recommended_scenarios
+        }
+        for technique in remaining_techniques:
+            recommendation = recommendation_by_id.get(technique.technique_id)
+            if recommendation:
+                technique.confidence = max(technique.confidence, recommendation.confidence)
+                if recommendation.rationale:
+                    technique.rationale = recommendation.rationale
+                technique.target_page_url = recommendation.target_page_url or analysis.page_url or fallback_page_url
+                technique.pre_action_selector = recommendation.pre_action_selector
+                technique.target_selector = recommendation.target_selector
+                technique.target_parameter = recommendation.target_parameter
+                technique.supporting_signals = list(recommendation.supporting_signals)
+                continue
+            if not technique.target_page_url:
+                technique.target_page_url = fallback_page_url
+
+    def _analyze_authenticated_page(
+        self,
+        *,
+        run: Run,
+        target: VulnerableAppDetail,
+        page_url: str,
+        storage_state_path: str,
+        remaining_techniques: list[AttackTechniquePlan],
+    ) -> None:
+        self._append_log(
+            f"Login succeeded; analyzing authenticated page {page_url} before continuing.",
+            level="info",
+        )
+        try:
+            analysis = self._page_analyzer.analyze_target(
+                target=target,
+                run_id=run.run_id,
+                target_url=page_url,
+                storage_state_path=storage_state_path,
+                analysis_label="post-login-analysis",
+            )
+        except Exception as exc:
+            self._append_log(
+                f"Authenticated page analysis failed; continuing with existing post-login browser state. Reason: {exc}",
+                level="warning",
+            )
+            for technique in remaining_techniques:
+                if not technique.target_page_url:
+                    technique.target_page_url = page_url
+            return
+
+        self._append_analysis_logs([analysis])
+        self._store_analysis_artifacts([analysis])
+        self._refresh_remaining_techniques_from_analysis(
+            remaining_techniques=remaining_techniques,
+            analysis=analysis,
+            fallback_page_url=page_url,
+        )
+        if self._current_session is not None:
+            self._current_session.metadata["post_login_analysis_url"] = analysis.page_url
+        self._broadcast_status()
 
     def _finalize_session(self) -> None:
         if self._current_session is None or self._session_history_store is None:
@@ -740,14 +878,23 @@ class RedAgentManager:
         self._session_history_store.save_session(finalized)
         self._current_session = None
 
-    def _run_browser_scenario(self, run: Run, target: VulnerableAppDetail, technique: AttackTechniquePlan) -> bool:
+    def _run_browser_scenario(
+        self,
+        run: Run,
+        target: VulnerableAppDetail,
+        technique: AttackTechniquePlan,
+        *,
+        storage_state_path: Optional[str] = None,
+        authenticated_page_url: Optional[str] = None,
+    ) -> dict[str, object]:
         run_id = run.run_id
         scenario_id = technique.technique_id
         scenario = get_scenario(scenario_id)
         self._append_log(f"Running browser scenario: {scenario.display_name}.", level="info")
-        if technique.target_page_url:
+        target_page_url = technique.target_page_url or authenticated_page_url
+        if target_page_url:
             self._append_log(
-                f"Planner selected page {technique.target_page_url} with confidence {technique.confidence:.2f}.",
+                f"Planner selected page {target_page_url} with confidence {technique.confidence:.2f}.",
                 level="info",
             )
         if technique.pre_action_selector or technique.target_selector or technique.target_parameter:
@@ -772,12 +919,23 @@ class RedAgentManager:
             run_id,
             target,
             scenario_id,
-            target_page_url=technique.target_page_url,
+            target_page_url=target_page_url,
             pre_action_selector=technique.pre_action_selector,
             target_selector=technique.target_selector,
             target_parameter=technique.target_parameter,
+            storage_state_path=storage_state_path,
         )
         self._append_log(result.get("summary", "Browser scenario completed."), level="info")
+        if isinstance(result.get("debug"), dict):
+            debug_payload = {
+                "level": "info",
+                "type": "browser_scenario_debug",
+                "scenario_id": scenario_id,
+                "debug": result["debug"],
+                "timestamp": utc_now().isoformat(),
+            }
+            self._record_session_debug(debug_payload)
+            self._append_debug_event(debug_payload)
         screenshot_path = result.get("screenshot_path")
         if screenshot_path:
             self._append_log(f"Playwright screenshot saved to {screenshot_path}.", level="info")
@@ -799,9 +957,9 @@ class RedAgentManager:
         except Exception:
             current_path = "/"
         path = current_path or "/"
-        self._emit_observable_telemetry(run_id, target, path, "BROWSER", status_code, response_size)
-        self._state.emitted_events_count += 1
-        confirmed_vulnerability = bool(result.get("confirmed_vulnerability", False))
+        self._record_browser_observation(run_id, target, path, "BROWSER", status_code, response_size)
+        findings = result.get("findings") if isinstance(result.get("findings"), list) else []
+        confirmed_vulnerability = bool(result.get("confirmed_vulnerability", False)) or bool(findings)
         self._record_ground_truth(
             run_id,
             target,
@@ -815,6 +973,8 @@ class RedAgentManager:
                 "artifact_url": self._state.latest_artifact_url,
                 "execution_mode": "browser",
                 "confirmed_vulnerability": confirmed_vulnerability,
+                "finding_count": len(findings),
+                "findings": findings,
                 "planner_confidence": technique.confidence,
                 "planner_rationale": technique.rationale,
             },
@@ -827,21 +987,31 @@ class RedAgentManager:
                 "scenario_id": scenario_id,
                 "execution_mode": "browser",
                 "confirmed_vulnerability": confirmed_vulnerability,
+                "finding_count": len(findings),
                 "planner_confidence": technique.confidence,
             },
         )
         if confirmed_vulnerability:
-            self._record_session_vulnerability(
-                scenario_id=scenario_id,
-                scenario_name=scenario.display_name,
-                location=current_url,
-                evidence=result.get("summary", "Confirmed vulnerability signal observed by the Red agent."),
-            )
+            if findings:
+                self._record_session_probe_findings(
+                    scenario_id=scenario_id,
+                    scenario_name=scenario.display_name,
+                    target_url=current_url,
+                    findings=findings,
+                )
+            else:
+                self._record_session_vulnerability(
+                    scenario_id=scenario_id,
+                    scenario_name=scenario.display_name,
+                    location=current_url,
+                    evidence=result.get("summary", "Confirmed vulnerability signal observed by the Red agent."),
+                )
             self._append_log(
                 f"Confirmed vulnerability signal observed during {scenario.display_name}.",
                 level="warning",
             )
-        return confirmed_vulnerability
+        result["confirmed_vulnerability"] = confirmed_vulnerability
+        return result
 
     def _run_planned_techniques(
         self,
@@ -852,6 +1022,9 @@ class RedAgentManager:
         self._append_log(f"Selected target URL: {target.target_url}", level="info")
         completed: list[str] = []
         techniques = list(plan.techniques)
+        storage_state_path = self._browser_storage_state_path(run.run_id)
+        authenticated_page_url: Optional[str] = None
+        authenticated_page_analyzed = False
         if not techniques:
             self._append_log("Attack planner returned no techniques for this run.", level="warning")
             self._apply_progress_state(run=run, current_technique=None, completed_techniques=[], remaining_techniques=[])
@@ -896,7 +1069,14 @@ class RedAgentManager:
                 )
                 continue
 
-            confirmed_vulnerability = self._run_browser_scenario(run, target, technique)
+            result = self._run_browser_scenario(
+                run,
+                target,
+                technique,
+                storage_state_path=storage_state_path,
+                authenticated_page_url=authenticated_page_url,
+            )
+            confirmed_vulnerability = bool(result.get("confirmed_vulnerability", False))
             completed.append(technique.technique_id)
             self._apply_progress_state(
                 run=run,
@@ -904,6 +1084,23 @@ class RedAgentManager:
                 completed_techniques=completed,
                 remaining_techniques=remaining_after_current,
             )
+
+            current_url = str(result.get("current_url") or "")
+            if (
+                technique.technique_id == "brute_force_login"
+                and confirmed_vulnerability
+                and current_url
+                and not authenticated_page_analyzed
+            ):
+                authenticated_page_url = current_url
+                authenticated_page_analyzed = True
+                self._analyze_authenticated_page(
+                    run=run,
+                    target=target,
+                    page_url=authenticated_page_url,
+                    storage_state_path=storage_state_path,
+                    remaining_techniques=techniques[index + 1 :],
+                )
 
             if confirmed_vulnerability and run.config.stop_on_first_confirmed_vulnerability:
                 self._append_log(
@@ -952,12 +1149,13 @@ class RedAgentManager:
                     self._state.message = "Red agent completed the planned techniques."
                 self._state.finished_at = utc_now()
                 self._state.remaining_time_budget_seconds = self._remaining_budget_seconds(run)
+            self._append_log("Attack run finished.", level="info")
+            self._broadcast_status()
             self._append_session_conclusion(
                 target=target,
                 plan=plan,
                 termination_reason=termination_reason,
             )
-            self._append_log("Attack run finished.", level="info")
             self._broadcast_status()
         except Exception as exc:
             stop_reason = self._stop_reason_from_run(run)

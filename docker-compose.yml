@@ -9,6 +9,7 @@ services:
     volumes:
       - ./logs/observability:/workspace/logs/observability
       - ./data/evaluation_ground_truth:/workspace/data/evaluation_ground_truth
+      - ./apps/frontend/test-results/red-agent:/workspace/apps/frontend/test-results/red-agent
     ports:
       - "8000:8000"
 

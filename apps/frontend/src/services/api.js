@@ -2,9 +2,9 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000
 
 const endpointGroups = {
   health: ["/health", "/api/health"],
-  telemetry: ["/telemetry", "/api/telemetry", "/api/telemetry/events"],
+  telemetry: ["/telemetry", "/api/telemetry"],
   detections: ["/detections", "/api/detections"],
-  metrics: ["/metrics", "/api/metrics"],
+  metrics: ["/api/metrics", "/metrics"],
   vulnerableApps: ["/apps"],
   vulnerableAppTemplates: ["/apps/templates"],
   blueAgentStatus: ["/blue-agent/status"],
@@ -17,17 +17,39 @@ const endpointGroups = {
   configRunForm: ["/api/config/run-form"],
 };
 
-function buildWebSocketUrl(path) {
+function buildWebSocketUrl(path, params = {}) {
   const url = new URL(API_BASE_URL);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   url.pathname = path;
   url.search = "";
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== null && value !== undefined && value !== "") {
+      url.searchParams.set(key, value);
+    }
+  });
   url.hash = "";
   return url.toString();
 }
 
 async function fetchJson(path, options = {}) {
-  const response = await fetch(`${API_BASE_URL}${path}`, options);
+  const timeoutMs = options.timeoutMs || 10_000;
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  const { timeoutMs: _timeoutMs, signal: _signal, ...fetchOptions } = options;
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...fetchOptions,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error(`Request to ${path} timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
   if (!response.ok) {
     let detail = `Request failed with status ${response.status}`;
     try {
@@ -48,10 +70,10 @@ async function fetchJson(path, options = {}) {
   return response.json();
 }
 
-async function tryEndpoints(paths, fallbackValue) {
+async function tryEndpoints(paths, fallbackValue, options = {}) {
   for (const path of paths) {
     try {
-      const payload = await fetchJson(path);
+      const payload = await fetchJson(path, options);
       return { payload, path };
     } catch (error) {
       if (error.status === 404) {
@@ -186,8 +208,12 @@ export async function stopBlueAgent() {
   });
 }
 
-export function getBlueAgentWebSocketUrl() {
-  return buildWebSocketUrl("/ws/blue-agent");
+export function getBlueAgentWebSocketUrl(runId) {
+  return buildWebSocketUrl("/ws/blue-agent", { run_id: runId });
+}
+
+export function getRunStateWebSocketUrl(runId) {
+  return buildWebSocketUrl("/ws/run-state", { run_id: runId });
 }
 
 export async function getRedAgentStatus() {
@@ -201,12 +227,16 @@ export async function getRedAgentScenarios() {
 }
 
 export async function getRedAgentSessions() {
-  const { payload } = await tryEndpoints(endpointGroups.redAgentSessions, []);
+  const { payload } = await tryEndpoints(
+    endpointGroups.redAgentSessions,
+    [],
+    { cache: "no-store" }
+  );
   return asArray(payload, ["sessions", "items"]);
 }
 
 export async function getRedAgentSessionDetail(sessionId) {
-  return fetchJson(`/red-agent/sessions/${sessionId}`);
+  return fetchJson(`/red-agent/sessions/${sessionId}`, { cache: "no-store" });
 }
 
 export async function startRedAgent(request) {
@@ -240,18 +270,22 @@ export async function startRun(runId) {
   });
 }
 
+export async function getRuns() {
+  return fetchJson("/api/runs");
+}
+
 export async function stopRedAgent() {
   return fetchJson("/red-agent/stop", {
     method: "POST",
   });
 }
 
-export function getRedAgentWebSocketUrl() {
-  return buildWebSocketUrl("/ws/red-agent");
+export function getRedAgentWebSocketUrl(runId) {
+  return buildWebSocketUrl("/ws/red-agent", { run_id: runId });
 }
 
 export async function getDashboardSnapshot() {
-  const [health, telemetry, detections, metrics, vulnerableApps, vulnerableAppTemplates, blueAgentStatus, redAgentStatus, redAgentScenarios] =
+  const [health, telemetry, detections, metrics, vulnerableApps, vulnerableAppTemplates, blueAgentStatus, redAgentStatus, redAgentScenarios, runs] =
     await Promise.allSettled([
       getBackendHealth(),
       getTelemetry(),
@@ -262,7 +296,11 @@ export async function getDashboardSnapshot() {
       getBlueAgentStatus(),
       getRedAgentStatus(),
       getRedAgentScenarios(),
+      getRuns(),
     ]);
+
+  const runItems = runs.status === "fulfilled" ? asArray(runs.value, ["runs", "items"]) : [];
+  const activeRunStatuses = new Set(["pending", "starting", "running", "stopping"]);
 
   return {
     connection:
@@ -278,6 +316,8 @@ export async function getDashboardSnapshot() {
     blueAgentStatus: blueAgentStatus.status === "fulfilled" ? blueAgentStatus.value : {},
     redAgentStatus: redAgentStatus.status === "fulfilled" ? redAgentStatus.value : {},
     redAgentScenarios: redAgentScenarios.status === "fulfilled" ? redAgentScenarios.value : [],
+    runs: runItems,
+    activeRun: runItems.find((run) => activeRunStatuses.has(run?.status)) || null,
     errors: [
       health.status === "rejected" ? health.reason?.message : null,
       telemetry.status === "rejected" ? telemetry.reason?.message : null,
@@ -288,6 +328,7 @@ export async function getDashboardSnapshot() {
       blueAgentStatus.status === "rejected" ? blueAgentStatus.reason?.message : null,
       redAgentStatus.status === "rejected" ? redAgentStatus.reason?.message : null,
       redAgentScenarios.status === "rejected" ? redAgentScenarios.reason?.message : null,
+      runs.status === "rejected" ? runs.reason?.message : null,
     ].filter(Boolean),
   };
 }

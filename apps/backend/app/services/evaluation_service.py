@@ -243,24 +243,47 @@ class EvaluationService:
 
         detection_count = len(detections)
         false_positive_count = detection_count - len(matched_detection_ids)
+        telemetry_event_count = self._repository.count_telemetry_events(run_id=run_id)
+        attack_ground_truth_count = len(evaluable_attacks)
         mean_time_to_detection = (
             sum(time_to_detection_samples) / len(time_to_detection_samples)
             if time_to_detection_samples
             else None
         )
+        detection_accuracy = (
+            detected_attack_count / attack_ground_truth_count if attack_ground_truth_count else 0.0
+        )
+        classification_accuracy = (
+            correct_classification_count / detected_attack_count if detected_attack_count else 0.0
+        )
+        false_positive_rate = (
+            false_positive_count / detection_count if detection_count else 0.0
+        )
         metrics = MetricSnapshot(
             mean_time_to_detection_seconds=mean_time_to_detection,
-            detection_accuracy=(
-                detected_attack_count / len(evaluable_attacks) if evaluable_attacks else 0.0
-            ),
-            classification_accuracy=(
-                correct_classification_count / detected_attack_count if detected_attack_count else 0.0
-            ),
-            false_positive_rate=(
-                false_positive_count / detection_count if detection_count else 0.0
-            ),
-            telemetry_event_count=len(self._repository.list_telemetry_events(run_id=run_id)),
+            detection_accuracy=detection_accuracy,
+            classification_accuracy=classification_accuracy,
+            false_positive_rate=false_positive_rate,
+            telemetry_event_count=telemetry_event_count,
             detection_count=detection_count,
-            attack_ground_truth_count=len(evaluable_attacks),
+            attack_ground_truth_count=attack_ground_truth_count,
+            red={
+                "evaluated_attack_count": attack_ground_truth_count,
+                "detected_attack_count": detected_attack_count,
+                "missed_attack_count": attack_ground_truth_count - detected_attack_count,
+                "ground_truth_record_count": len(truth_records),
+            },
+            blue={
+                "detection_count": detection_count,
+                "matched_detection_count": len(matched_detection_ids),
+                "false_positive_count": false_positive_count,
+                "false_positive_rate": false_positive_rate,
+            },
+            overall={
+                "telemetry_event_count": telemetry_event_count,
+                "mean_time_to_detection_seconds": mean_time_to_detection,
+                "detection_accuracy": detection_accuracy,
+                "classification_accuracy": classification_accuracy,
+            },
         )
         return matches, metrics
