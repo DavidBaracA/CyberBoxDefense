@@ -79,6 +79,7 @@ const BOUNDED_LOGIN_ATTEMPTS = [
   { username: "admin", password: "guess2" },
   { username: "admin", password: "password" },
   { username: "user1@example.com", password: "Pasword1" },
+  { username: "test@gmail.com", password: "password" },
   { username: "test@example.com", password: "Pasword12" },
   { username: "test2@example.com", password: "Password123" },
   { username: "test3@example.com", password: "Password123!" },
@@ -517,25 +518,31 @@ async function loginFormMetadata(usernameField, passwordField) {
     .catch(() => null);
 }
 
-async function submitAncestorForm(page, passwordField) {
+async function submitAncestorForm(page, passwordField, submitButton = null) {
   const form = passwordField.locator("xpath=ancestor::form[1]");
   if ((await form.count().catch(() => 0)) === 0) {
     return { submitted: false, error: "no_form" };
   }
 
+  const submitterHandle = submitButton ? await submitButton.elementHandle().catch(() => null) : null;
   const error = await Promise.all([
     page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 7_000 }).catch(() => null),
     form
-      .evaluate((formNode) => {
+      .evaluate((formNode, submitter) => {
         if (typeof formNode.requestSubmit === "function") {
+          if (submitter) {
+            formNode.requestSubmit(submitter);
+            return;
+          }
           formNode.requestSubmit();
           return;
         }
         formNode.submit();
-      })
+      }, submitterHandle)
       .then(() => null)
       .catch((submitError) => submitError.message),
   ]).then(([, submitError]) => submitError);
+  await submitterHandle?.dispose().catch(() => {});
   await page.waitForLoadState("networkidle", { timeout: 7_000 }).catch(() => {});
   return { submitted: !error, error };
 }
@@ -545,7 +552,7 @@ async function submitLoginAttempt(page, usernameField, passwordField, targetSele
   const beforeUrl = page.url();
   const formMetadata = await loginFormMetadata(usernameField, passwordField);
 
-  const formSubmission = await submitAncestorForm(page, passwordField);
+  const formSubmission = await submitAncestorForm(page, passwordField, submitButton);
   if (formSubmission.submitted) {
     return {
       method: "form_request_submit",

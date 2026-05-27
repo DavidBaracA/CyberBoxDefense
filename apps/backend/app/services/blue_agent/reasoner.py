@@ -50,6 +50,7 @@ class BlueReasonerInput:
     """Normalized Blue-safe evidence passed into the reasoning step."""
 
     target_name: str
+    reasoning_depth: str
     anomaly_summary: str
     recent_event_messages: list[str]
     suspicion_score: float
@@ -191,7 +192,8 @@ class OllamaBlueReasoner:
         )
 
     def _build_prompt(self, payload: BlueReasonerInput) -> str:
-        event_lines = payload.recent_event_messages[:8]
+        event_limit = _event_sample_limit(payload.reasoning_depth)
+        event_lines = payload.recent_event_messages[:event_limit]
         if not event_lines:
             event_lines = ["No new event messages were observed in this cycle."]
         vulnerability_lines = [
@@ -212,6 +214,8 @@ class OllamaBlueReasoner:
             "Use one of the available vulnerability scenario ids when the evidence supports it; "
             "otherwise use anomalous_web_activity.\n\n"
             f"Target: {payload.target_name}\n"
+            f"Blue reasoning depth: {payload.reasoning_depth}\n"
+            f"Blue reasoning guidance: {_blue_reasoning_depth_guidance(payload.reasoning_depth)}\n"
             "Available vulnerability scenario ids:\n"
             + "\n".join(vulnerability_lines)
             + "\n\n"
@@ -309,6 +313,35 @@ class OllamaBlueReasoner:
         if not isinstance(payload, dict):
             raise RuntimeError("Ollama classification output was not a JSON object.")
         return payload
+
+
+def _blue_reasoning_depth_guidance(reasoning_depth: str) -> str:
+    """Explain operator analysis-depth intent to the Blue classifier."""
+    normalized_depth = reasoning_depth.lower().strip()
+    if normalized_depth == "quick":
+        return (
+            "Make a compact classification from the strongest recent signals. "
+            "Prefer lower confidence when evidence is incomplete."
+        )
+    if normalized_depth == "deep":
+        return (
+            "Correlate a wider set of recent telemetry messages before deciding. "
+            "Be more cautious with confidence and mention conflicting or weak evidence."
+        )
+    return (
+        "Use the normal monitoring depth: classify from the current anomaly summary "
+        "and representative recent telemetry without assuming attacker intent."
+    )
+
+
+def _event_sample_limit(reasoning_depth: str) -> int:
+    """Choose how much recent telemetry context Blue sends to the reasoner."""
+    normalized_depth = reasoning_depth.lower().strip()
+    if normalized_depth == "quick":
+        return 5
+    if normalized_depth == "deep":
+        return 14
+    return 8
 
 
 class FallbackBlueReasoner:

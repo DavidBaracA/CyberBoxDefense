@@ -9,9 +9,9 @@ from ..config_models import (
     ConfigOption,
     RunConfigContract,
     attack_depth_label,
-    blue_mode_label,
+    blue_reasoning_depth_label,
 )
-from ..run_models import AttackDepth, BlueMode, RunConfig
+from ..run_models import AttackDepth, BlueMode, BlueReasoningDepth, RunConfig
 
 
 DEFAULT_DURATION_OPTIONS = [
@@ -71,18 +71,19 @@ def create_config_router(attack_types_provider, red_model_provider=None) -> APIR
             for depth in AttackDepth
         ]
 
-    def build_blue_mode_options() -> list[ConfigOption]:
+    def build_blue_reasoning_depth_options() -> list[ConfigOption]:
         descriptions = {
-            BlueMode.DETECT_ONLY: "Blue monitors and emits detections only.",
-            BlueMode.DETECT_AND_CONTAIN: "Reserve space for future containment decisions.",
+            BlueReasoningDepth.QUICK: "Use a compact Blue analysis pass over recent high-signal telemetry.",
+            BlueReasoningDepth.BALANCED: "Use the default Blue analysis depth for normal session monitoring.",
+            BlueReasoningDepth.DEEP: "Review more telemetry context and ask for more cautious evidence correlation.",
         }
         return [
             ConfigOption(
-                value=mode.value,
-                label=blue_mode_label(mode),
-                description=descriptions[mode],
+                value=depth.value,
+                label=blue_reasoning_depth_label(depth),
+                description=descriptions[depth],
             )
-            for mode in BlueMode
+            for depth in BlueReasoningDepth
         ]
 
     def build_red_model_options() -> list[ConfigOption]:
@@ -101,10 +102,6 @@ def create_config_router(attack_types_provider, red_model_provider=None) -> APIR
     @router.get("/attack-types", response_model=list[AttackTypeOption])
     def get_attack_types() -> list[AttackTypeOption]:
         return build_attack_type_options()
-
-    @router.get("/blue-modes", response_model=list[ConfigOption])
-    def get_blue_modes() -> list[ConfigOption]:
-        return build_blue_mode_options()
 
     @router.get("/attack-depths", response_model=list[ConfigOption])
     def get_attack_depths() -> list[ConfigOption]:
@@ -128,6 +125,7 @@ def create_config_router(attack_types_provider, red_model_provider=None) -> APIR
             enabled_attack_types=default_attack_type,
             try_all_available=False,
             attack_depth=AttackDepth.BALANCED,
+            blue_reasoning_depth=BlueReasoningDepth.BALANCED,
             stop_on_first_confirmed_vulnerability=False,
             blue_mode=BlueMode.DETECT_ONLY,
             red_model_id=default_red_model_id,
@@ -142,7 +140,7 @@ def create_config_router(attack_types_provider, red_model_provider=None) -> APIR
             duration_options=list(DEFAULT_DURATION_OPTIONS),
             attack_types=default_attack_types,
             attack_depths=build_attack_depth_options(),
-            blue_modes=build_blue_mode_options(),
+            blue_reasoning_depths=build_blue_reasoning_depth_options(),
             red_models=red_model_options,
             validation_notes=[
                 "duration_seconds must be greater than 0.",

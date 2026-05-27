@@ -230,15 +230,21 @@ export default function RedAgentSessionsModal({ isOpen, onClose }) {
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [error, setError] = useState("");
 
-  async function loadSessions() {
-    setIsLoadingList(true);
-    setIsLoadingDetail(true);
+  async function loadSessions({ preserveSelection = false, quiet = false } = {}) {
+    if (!quiet) {
+      setIsLoadingList(true);
+      setIsLoadingDetail(true);
+    }
     setError("");
 
     try {
       const items = await getRedAgentSessions();
       setSessions(items);
-      const nextSessionId = items[0]?.session_id || "";
+      const latestSessionId = items[0]?.session_id || "";
+      const selectedStillExists = items.some((item) => item.session_id === selectedSessionId);
+      const nextSessionId = preserveSelection && selectedStillExists
+        ? selectedSessionId
+        : latestSessionId;
       setSelectedSessionId(nextSessionId);
       if (!nextSessionId) {
         setSelectedSession(null);
@@ -252,8 +258,10 @@ export default function RedAgentSessionsModal({ isOpen, onClose }) {
       setSelectedSessionId("");
       setSelectedSession(null);
     } finally {
-      setIsLoadingList(false);
-      setIsLoadingDetail(false);
+      if (!quiet) {
+        setIsLoadingList(false);
+        setIsLoadingDetail(false);
+      }
     }
   }
 
@@ -265,6 +273,20 @@ export default function RedAgentSessionsModal({ isOpen, onClose }) {
     loadSessions();
     return undefined;
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(() => {
+      loadSessions({ preserveSelection: true, quiet: true });
+    }, 5000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [isOpen, selectedSessionId]);
 
   useEffect(() => {
     if (!isOpen || !selectedSessionId) {

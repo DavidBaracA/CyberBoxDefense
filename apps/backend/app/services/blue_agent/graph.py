@@ -15,6 +15,7 @@ from .telemetry_adapter import BlueTelemetryAdapter
 def build_blue_agent_graph(
     telemetry_adapter: BlueTelemetryAdapter,
     reasoner: BlueReasoner,
+    reasoning_depth: str = "balanced",
 ) -> Any:
     """Build the LangGraph monitoring cycle for the Blue agent.
 
@@ -142,11 +143,44 @@ def build_blue_agent_graph(
             for observable in observables
             if observable.get("observable_type") == "post_login_navigation"
         )
-        score = min(1.0, (http_errors * 0.18) + (elevated * 0.14) + (login_churn * 0.08) + (success_navigation * 0.12))
+        input_markers = sum(
+            1
+            for observable in observables
+            if observable.get("observable_type") in {"sqli_marker", "xss_marker", "path_traversal_marker"}
+        )
+        container_signals = sum(
+            1
+            for observable in observables
+            if observable.get("metadata", {}).get("kind") == "container_signal"
+        )
+        path_counts: dict[str, int] = {}
+        for observable in observables:
+            path = observable.get("path")
+            if path:
+                path_counts[path] = path_counts.get(path, 0) + 1
+        repeated_paths = sum(1 for count in path_counts.values() if count >= 3)
+        http_error_score = min(0.30, http_errors * 0.18)
+        severity_score = min(0.25, elevated * 0.12)
+        attack_marker_score = min(0.35, input_markers * 0.20)
+        behavior_score = min(
+            0.35,
+            (login_churn * 0.08)
+            + (success_navigation * 0.12)
+            + (container_signals * 0.10)
+            + (repeated_paths * 0.08),
+        )
+        score = min(
+            1.0,
+            http_error_score
+            + severity_score
+            + attack_marker_score
+            + behavior_score,
+        )
         summary = (
             f"Observed {len(observables)} semantic observable(s): {http_errors} HTTP 5xx responses, "
             f"{elevated} elevated-severity events, {login_churn} login-flow anomalies, "
-            f"{success_navigation} post-login navigation signals."
+            f"{success_navigation} post-login navigation signals, {input_markers} input attack markers, "
+            f"{container_signals} container signals, {repeated_paths} repeated-path signals."
         )
 
         level = "warning" if score >= 0.55 else "info"
@@ -181,6 +215,7 @@ def build_blue_agent_graph(
         reasoner_result = reasoner.reason(
             BlueReasonerInput(
                 target_name=selected.get("name", "unknown-target"),
+                reasoning_depth=reasoning_depth,
                 anomaly_summary=state.get("anomaly_summary", "No anomaly summary available."),
                 recent_event_messages=message_samples,
                 suspicion_score=float(state.get("suspicion_score", 0.0)),

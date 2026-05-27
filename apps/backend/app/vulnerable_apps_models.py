@@ -124,6 +124,11 @@ class VulnerableAppSummary(BaseModel):
     host_ports: dict[str, int] = Field(default_factory=dict)
     runtime_identifier: str
     container_name: Optional[str] = None
+    proxy_container_name: Optional[str] = None
+    proxy_image_name: Optional[str] = None
+    proxy_config_path: Optional[str] = None
+    upstream_container_name: Optional[str] = None
+    upstream_container_port: Optional[int] = None
     target_url: str
     created_at: datetime = Field(default_factory=utc_now)
     status_notes: Optional[str] = None

@@ -41,6 +41,15 @@ DOCKER_STATUS_POLL_SECONDS = 10.0
 HIGH_RISK_DOCKER_ACTIONS = {"die", "kill", "oom", "destroy"}
 WARNING_DOCKER_ACTIONS = {"stop", "restart", "pause", "unpause"}
 UNHEALTHY_STATES = {"exited", "dead", "restarting"}
+ROUTINE_HEALTHCHECK_EXEC_PREFIXES = ("exec_create:", "exec_start:", "exec_die:")
+ROUTINE_HEALTHCHECK_COMMAND_MARKERS = (
+    "/app/health.sh",
+    "curl -f http://127.0.0.1",
+    "pg_isready",
+    "db.runCommand",
+    "nc -z localhost",
+    "/dev/tcp/127.0.0.1",
+)
 
 
 @dataclass
@@ -285,10 +294,13 @@ class TelemetryCollector:
         return specs
 
     def _container_names_for_app(self, app: VulnerableAppDetail) -> list[str]:
+        names: list[str] = []
         if app.container_name:
-            return [app.container_name]
+            names.append(app.container_name)
+        if app.proxy_container_name:
+            names.append(app.proxy_container_name)
         if app.deployment_type != DeploymentType.DOCKER_COMPOSE or not app.compose_project_name:
-            return []
+            return list(dict.fromkeys(names))
 
         result = self._deployment_service._run_docker_command(
             [
@@ -301,8 +313,9 @@ class TelemetryCollector:
             ]
         )
         if result.returncode != 0:
-            return []
-        return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+            return list(dict.fromkeys(names))
+        names.extend(line.strip() for line in result.stdout.splitlines() if line.strip())
+        return list(dict.fromkeys(names))
 
     def _consume_source(
         self,
@@ -448,6 +461,9 @@ class TelemetryCollector:
         action = str(payload.get("Action") or payload.get("status") or "unknown")
         actor = payload.get("Actor") if isinstance(payload.get("Actor"), dict) else {}
         attributes = actor.get("Attributes") if isinstance(actor.get("Attributes"), dict) else {}
+        if self._should_skip_docker_event(action, attributes):
+            return
+
         event_time = self._docker_event_time(payload)
         severity = self._docker_event_severity(action, attributes)
         message = f"Docker event '{action}' observed for container {source_spec.target}."
@@ -474,6 +490,14 @@ class TelemetryCollector:
                 },
             )
         )
+
+    def _should_skip_docker_event(self, action: str, attributes: dict[str, object]) -> bool:
+        normalized_action = action.lower()
+        if self._docker_event_health_status(action, attributes):
+            return False
+        if not normalized_action.startswith(ROUTINE_HEALTHCHECK_EXEC_PREFIXES):
+            return False
+        return any(marker.lower() in normalized_action for marker in ROUTINE_HEALTHCHECK_COMMAND_MARKERS)
 
     def _docker_event_time(self, payload: dict[str, object]) -> datetime:
         raw_time = payload.get("timeNano")

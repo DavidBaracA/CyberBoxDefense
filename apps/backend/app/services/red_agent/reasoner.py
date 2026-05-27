@@ -188,6 +188,7 @@ class OllamaRedPlanningReasoner:
             }
             for page in payload.analyzed_pages
         ]
+        depth_guidance = _attack_depth_guidance(payload.attack_depth)
         return (
             "Reorder only the allowed local Red scenarios. "
             "Do not invent scenarios, commands, payloads, or targets. "
@@ -195,6 +196,12 @@ class OllamaRedPlanningReasoner:
             f"Target name: {payload.target_name}\n"
             f"Target url: {payload.target_url}\n"
             f"Attack depth: {payload.attack_depth}\n"
+            f"Attack depth guidance: {depth_guidance}\n"
+            f"Session duration: {payload.duration_seconds} seconds\n"
+            f"Try all available scenarios: {payload.try_all_available}\n"
+            "Planning rule: choose the safest useful order from the allowed list only. "
+            "Prefer scenarios supported by analyzed page signals, and adapt the order to "
+            "the selected attack depth and time budget.\n"
             f"Analyzed pages: {json.dumps(analyzed_pages_summary, ensure_ascii=True)}\n"
             "Allowed scenarios:\n"
             + "\n".join(scenario_lines)
@@ -250,10 +257,36 @@ class OllamaRedPlanningReasoner:
         return str(response_text)
 
     def _parse_response(self, response_text: str) -> dict[str, object]:
-        payload = json.loads(response_text)
+        try:
+            payload = json.loads(response_text)
+        except json.JSONDecodeError as exc:
+            snippet = response_text[:300].replace("\n", "\\n")
+            raise RuntimeError(
+                f"Ollama planning output was not valid JSON: {exc}. "
+                f"Response starts with: {snippet}"
+            ) from exc
         if not isinstance(payload, dict):
             raise RuntimeError("Ollama planning output was not a JSON object.")
         return payload
+
+
+def _attack_depth_guidance(attack_depth: str) -> str:
+    """Explain operator depth intent to the bounded planning model."""
+    normalized_depth = attack_depth.lower().strip()
+    if normalized_depth == "quick":
+        return (
+            "Prefer short, high-confidence checks. Avoid deep-only, expensive, "
+            "or multi-step exploration unless it is the only clearly relevant option."
+        )
+    if normalized_depth == "deep":
+        return (
+            "Prefer thorough coverage. Include relevant multi-step and lower-confidence "
+            "scenarios after high-signal checks, while still staying inside the allowed list."
+        )
+    return (
+        "Balance high-confidence checks with moderate exploration. Prioritize likely "
+        "matches first, then include broader scenarios if time allows."
+    )
 
 
 class FallbackRedPlanningReasoner:
@@ -328,6 +361,6 @@ def build_red_planning_reasoner(model_id: Optional[str] = None) -> RedPlanningRe
         timeout_seconds=timeout,
         think=think,
     )
-    if mode in {"auto", "ollama"}:
+    if mode == "ollama":
         return ollama
-    return ollama
+    return FallbackRedPlanningReasoner(primary=ollama, fallback=heuristic)

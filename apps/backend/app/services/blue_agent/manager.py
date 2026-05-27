@@ -477,8 +477,13 @@ class LangGraphBlueAgentManager:
                 )
 
             requested_model_id = payload.model_id if payload else None
+            requested_reasoning_depth = payload.reasoning_depth if payload else "balanced"
             self._reasoner = build_blue_reasoner_from_env(requested_model_id)
-            self._graph = build_blue_agent_graph(self._telemetry_adapter, self._reasoner)
+            self._graph = build_blue_agent_graph(
+                self._telemetry_adapter,
+                self._reasoner,
+                reasoning_depth=requested_reasoning_depth,
+            )
             target_names = [getattr(target, "name", "unknown-target") for target in running_targets]
             self._stop_event = threading.Event()
             self._logs = []
@@ -516,6 +521,10 @@ class LangGraphBlueAgentManager:
             )
             self._append_log(
                 f"Reasoning backend selected: {getattr(self._reasoner, 'name', 'unknown')}.",
+                level="info",
+            )
+            self._append_log(
+                f"Blue reasoning depth set to {requested_reasoning_depth}.",
                 level="info",
             )
             if self._state.selected_model_label:

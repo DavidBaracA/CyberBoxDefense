@@ -1,8 +1,9 @@
 # Derived from the official OWASP/crAPI deploy/docker/docker-compose.yml file.
 # Local adjustments:
 # - removed fixed container_name declarations so multiple compose projects can coexist
-# - exposed only the primary web UI port and MailHog UI port on the host
-# - parameterized host ports through CRAPI_PORT and CRAPI_MAILHOG_PORT
+# - exposes MailHog UI on the host; the primary web UI is reached through the
+#   CyberBoxDefense nginx monitoring proxy
+# - parameterized the MailHog host port through CRAPI_MAILHOG_PORT
 
 services:
   crapi-identity:
@@ -122,8 +123,6 @@ services:
 
   crapi-web:
     image: crapi/crapi-web:${VERSION:-latest}
-    ports:
-      - "${LISTEN_IP:-127.0.0.1}:${CRAPI_PORT:-8888}:80"
     environment:
       - COMMUNITY_SERVICE=crapi-community:${COMMUNITY_SERVER_PORT:-8087}
       - IDENTITY_SERVICE=crapi-identity:${IDENTITY_SERVER_PORT:-8080}

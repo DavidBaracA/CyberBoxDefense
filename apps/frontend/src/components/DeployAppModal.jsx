@@ -174,7 +174,7 @@ export default function DeployAppModal({
               </label>
 
               <label className="form-field">
-                <span>Container port</span>
+                <span>Internal app port</span>
                 <input
                   name="container_port"
                   type="number"
@@ -199,7 +199,7 @@ export default function DeployAppModal({
           ) : null}
 
           <label className="form-field">
-            <span>{form.use_custom_image ? "Host port" : "Port"}</span>
+            <span>Monitored proxy port</span>
             <input
               name="port"
               type="number"

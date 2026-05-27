@@ -72,7 +72,7 @@ export default function VulnerableAppsPanel({
                 <th>Template</th>
                 <th>Status</th>
                 <th>Port</th>
-                <th>Target URL</th>
+                <th>Monitored URL</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -95,9 +95,16 @@ export default function VulnerableAppsPanel({
                   <td>{app.port ?? "N/A"}</td>
                   <td>
                     {app.target_url ? (
-                      <a href={app.target_url} target="_blank" rel="noreferrer">
-                        {app.target_url}
-                      </a>
+                      <>
+                        <a href={app.target_url} target="_blank" rel="noreferrer">
+                          {app.target_url}
+                        </a>
+                        {app.proxy_container_name ? (
+                          <div className="helper-copy">
+                            via proxy {app.proxy_container_name}
+                          </div>
+                        ) : null}
+                      </>
                     ) : (
                       "N/A"
                     )}

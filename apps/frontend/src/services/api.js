@@ -152,6 +152,7 @@ export async function getVulnerableAppTemplates() {
 export async function deployVulnerableApp(request) {
   return fetchJson("/apps/deploy", {
     method: "POST",
+    timeoutMs: 120_000,
     headers: {
       "Content-Type": "application/json",
     },

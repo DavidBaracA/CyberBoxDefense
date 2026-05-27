@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
+from ..blue_agent_models import BlueAgentStartRequest
 from ..red_agent_models import RedAgentStartRequest
 from ..run_models import RunStartResponse, RunStatus, RunTerminationReason
 from .run_service import RunService
@@ -52,7 +53,9 @@ class RunExecutionService:
         self._blue_agent_service.stop(
             reason="Blue agent restarting to attach to the newly selected experiment run."
         )
-        blue_response = self._blue_agent_service.start()
+        blue_response = self._blue_agent_service.start(
+            BlueAgentStartRequest(reasoning_depth=run.config.blue_reasoning_depth.value)
+        )
         try:
             red_response = self._red_agent_service.start(
                 RedAgentStartRequest(run_id=run_id)

@@ -10,7 +10,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
-from .run_models import AttackDepth, BlueMode, RunConfig
+from .run_models import AttackDepth, BlueReasoningDepth, RunConfig
 
 
 class ConfigOption(BaseModel):
@@ -43,7 +43,7 @@ class RunConfigContract(BaseModel):
     duration_options: list[ConfigOption] = Field(default_factory=list)
     attack_types: list[AttackTypeOption] = Field(default_factory=list)
     attack_depths: list[ConfigOption] = Field(default_factory=list)
-    blue_modes: list[ConfigOption] = Field(default_factory=list)
+    blue_reasoning_depths: list[ConfigOption] = Field(default_factory=list)
     red_models: list[ConfigOption] = Field(default_factory=list)
     validation_notes: list[str] = Field(default_factory=list)
 
@@ -56,7 +56,9 @@ def attack_depth_label(depth: AttackDepth) -> str:
     return "Deep"
 
 
-def blue_mode_label(mode: BlueMode) -> str:
-    if mode == BlueMode.DETECT_ONLY:
-        return "Detect Only"
-    return "Detect And Contain"
+def blue_reasoning_depth_label(depth: BlueReasoningDepth) -> str:
+    if depth == BlueReasoningDepth.QUICK:
+        return "Quick"
+    if depth == BlueReasoningDepth.BALANCED:
+        return "Balanced"
+    return "Deep"

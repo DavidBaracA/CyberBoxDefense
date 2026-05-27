@@ -15,7 +15,7 @@ export default function DetectionList({ items }) {
   const rows = Array.isArray(items) ? items : [];
 
   return (
-    <section className="panel stream-panel">
+    <section className="panel stream-panel detection-panel">
       <div className="panel-header">
         <h2>Detection Stream</h2>
         <p className="panel-copy">
@@ -26,7 +26,7 @@ export default function DetectionList({ items }) {
       {rows.length === 0 ? (
         <p className="empty-state">No detections available yet.</p>
       ) : (
-        <div className="stream-list">
+        <div className="stream-list detection-stream-list">
           {rows.map((item, index) => (
             <article
               className="stream-item detection-item"

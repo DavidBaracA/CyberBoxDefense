@@ -638,6 +638,34 @@ export default function Dashboard() {
           return;
         }
 
+        if (payload?.type === "detection_emitted" && payload.detection) {
+          appendAgentDebug("ws-blue", "detection_emitted", payload.detection);
+          setState((current) => ({
+            ...current,
+            detections: [
+              ...safeArray(current.detections).filter(
+                (item) => item?.detection_id !== payload.detection.detection_id
+              ),
+              payload.detection,
+            ].slice(-200),
+          }));
+          return;
+        }
+
+        if (payload?.type === "detection" && payload.detection) {
+          appendAgentDebug("ws-blue", "detection", payload.detection);
+          setState((current) => ({
+            ...current,
+            detections: [
+              ...safeArray(current.detections).filter(
+                (item) => item?.detection_id !== payload.detection.detection_id
+              ),
+              payload.detection,
+            ].slice(-200),
+          }));
+          return;
+        }
+
         if (payload?.type === "status" && payload.state) {
           appendAgentDebug("ws-blue", "status", payload.state);
           setState((current) => ({

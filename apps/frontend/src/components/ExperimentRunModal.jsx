@@ -22,8 +22,8 @@ export default function ExperimentRunModal({
   const attackDepthOptions = Array.isArray(runFormConfig?.attack_depths)
     ? runFormConfig.attack_depths
     : [];
-  const blueModeOptions = Array.isArray(runFormConfig?.blue_modes)
-    ? runFormConfig.blue_modes
+  const blueReasoningDepthOptions = Array.isArray(runFormConfig?.blue_reasoning_depths)
+    ? runFormConfig.blue_reasoning_depths
     : [];
   const redModelOptions = Array.isArray(runFormConfig?.red_models)
     ? runFormConfig.red_models
@@ -39,8 +39,8 @@ export default function ExperimentRunModal({
   const [durationSeconds, setDurationSeconds] = useState("");
   const [tryAllAvailable, setTryAllAvailable] = useState(false);
   const [attackDepth, setAttackDepth] = useState("balanced");
+  const [blueReasoningDepth, setBlueReasoningDepth] = useState("balanced");
   const [stopOnFirstConfirmed, setStopOnFirstConfirmed] = useState(false);
-  const [blueMode, setBlueMode] = useState("detect_only");
   const [redModelId, setRedModelId] = useState("");
   const [validationError, setValidationError] = useState("");
   const wasOpenRef = useRef(false);
@@ -62,10 +62,12 @@ export default function ExperimentRunModal({
     );
     setTryAllAvailable(Boolean(defaultConfig.try_all_available ?? false));
     setAttackDepth(defaultConfig.attack_depth || attackDepthOptions[0]?.value || "balanced");
+    setBlueReasoningDepth(
+      defaultConfig.blue_reasoning_depth || blueReasoningDepthOptions[0]?.value || "balanced"
+    );
     setStopOnFirstConfirmed(
       Boolean(defaultConfig.stop_on_first_confirmed_vulnerability ?? false)
     );
-    setBlueMode(defaultConfig.blue_mode || blueModeOptions[0]?.value || "detect_only");
     setRedModelId(defaultConfig.red_model_id || redModelOptions[0]?.value || "");
     setValidationError("");
   }, [
@@ -75,7 +77,7 @@ export default function ExperimentRunModal({
     defaultConfig,
     durationOptions,
     attackDepthOptions,
-    blueModeOptions,
+    blueReasoningDepthOptions,
     redModelOptions,
   ]);
 
@@ -121,8 +123,9 @@ export default function ExperimentRunModal({
         enabled_attack_types: selectedScenarios,
         try_all_available: tryAllAvailable,
         attack_depth: attackDepth || defaultConfig.attack_depth || "balanced",
+        blue_reasoning_depth:
+          blueReasoningDepth || defaultConfig.blue_reasoning_depth || "balanced",
         stop_on_first_confirmed_vulnerability: stopOnFirstConfirmed,
-        blue_mode: blueMode || defaultConfig.blue_mode || "detect_only",
         red_model_id: redModelId || defaultConfig.red_model_id || redModelOptions[0]?.value || null,
         graceful_shutdown_seconds: defaultConfig.graceful_shutdown_seconds ?? 10,
       },
@@ -202,13 +205,13 @@ export default function ExperimentRunModal({
             </label>
 
             <label className="form-field">
-              <span>Blue Mode</span>
+              <span>Blue Reasoning Depth</span>
               <select
-                value={blueMode}
-                onChange={(event) => setBlueMode(event.target.value)}
+                value={blueReasoningDepth}
+                onChange={(event) => setBlueReasoningDepth(event.target.value)}
                 disabled={isSubmitting}
               >
-                {blueModeOptions.map((option) => (
+                {blueReasoningDepthOptions.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>

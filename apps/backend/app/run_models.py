@@ -57,6 +57,14 @@ class AttackDepth(str, Enum):
     DEEP = "deep"
 
 
+class BlueReasoningDepth(str, Enum):
+    """Operator-selected analysis depth for Blue-agent reasoning."""
+
+    QUICK = "quick"
+    BALANCED = "balanced"
+    DEEP = "deep"
+
+
 class BlueMode(str, Enum):
     """Blue-agent operating mode within a run."""
 
@@ -71,6 +79,7 @@ class RunConfig(BaseModel):
     enabled_attack_types: list[str] = Field(default_factory=list)
     try_all_available: bool = False
     attack_depth: AttackDepth = AttackDepth.BALANCED
+    blue_reasoning_depth: BlueReasoningDepth = BlueReasoningDepth.BALANCED
     stop_on_first_confirmed_vulnerability: bool = False
     blue_mode: BlueMode = BlueMode.DETECT_ONLY
     red_model_id: Optional[str] = None

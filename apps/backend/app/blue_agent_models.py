@@ -67,6 +67,7 @@ class BlueAgentStartRequest(BaseModel):
     """Optional runtime start payload for selecting the Blue reasoning model."""
 
     model_id: Optional[str] = None
+    reasoning_depth: str = "balanced"
 
 
 class BlueAgentActionResponse(BaseModel):

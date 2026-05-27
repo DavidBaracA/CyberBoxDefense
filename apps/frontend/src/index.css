@@ -166,6 +166,7 @@ h2 {
 .summary-card {
   padding: 1rem;
   min-height: 150px;
+  min-width: 0;
 }
 
 .summary-label {
@@ -176,8 +177,12 @@ h2 {
 
 .summary-value {
   display: block;
+  max-width: 100%;
   font-size: clamp(1.35rem, 2vw, 2rem);
+  line-height: 1.15;
   margin-bottom: 0.65rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .content-grid {
@@ -267,7 +272,8 @@ h2 {
   padding: 1rem;
 }
 
-.telemetry-panel {
+.telemetry-panel,
+.detection-panel {
   display: flex;
   flex-direction: column;
   min-height: 36rem;
@@ -290,28 +296,33 @@ h2 {
   gap: 0.85rem;
 }
 
-.telemetry-stream-list {
+.telemetry-stream-list,
+.detection-stream-list {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding-right: 0.35rem;
 }
 
-.telemetry-stream-list::-webkit-scrollbar {
+.telemetry-stream-list::-webkit-scrollbar,
+.detection-stream-list::-webkit-scrollbar {
   width: 0.65rem;
 }
 
-.telemetry-stream-list::-webkit-scrollbar-track {
+.telemetry-stream-list::-webkit-scrollbar-track,
+.detection-stream-list::-webkit-scrollbar-track {
   background: rgba(5, 11, 18, 0.45);
   border-radius: 999px;
 }
 
-.telemetry-stream-list::-webkit-scrollbar-thumb {
+.telemetry-stream-list::-webkit-scrollbar-thumb,
+.detection-stream-list::-webkit-scrollbar-thumb {
   background: rgba(98, 208, 255, 0.3);
   border-radius: 999px;
 }
 
-.telemetry-stream-list::-webkit-scrollbar-thumb:hover {
+.telemetry-stream-list::-webkit-scrollbar-thumb:hover,
+.detection-stream-list::-webkit-scrollbar-thumb:hover {
   background: rgba(98, 208, 255, 0.46);
 }
 
