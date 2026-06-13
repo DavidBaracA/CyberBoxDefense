@@ -15,7 +15,7 @@ from .telemetry_adapter import BlueTelemetryAdapter
 def build_blue_agent_graph(
     telemetry_adapter: BlueTelemetryAdapter,
     reasoner: BlueReasoner,
-    reasoning_depth: str = "balanced",
+    reasoning_depth: str = "normal",
 ) -> Any:
     """Build the LangGraph monitoring cycle for the Blue agent.
 
@@ -265,7 +265,7 @@ def build_blue_agent_graph(
     def emit_detection_candidate(state: BlueAgentGraphState) -> BlueAgentGraphState:
         suspicion_score = float(state.get("suspicion_score", 0.0))
         confidence = float(state.get("confidence", 0.0))
-        if suspicion_score < 0.55 or confidence < 0.60:
+        if suspicion_score < 0.30 or confidence < 0.60:
             return {
                 "last_detection": None,
                 "cycle_terminal_lines": state.get("cycle_terminal_lines", []) + [

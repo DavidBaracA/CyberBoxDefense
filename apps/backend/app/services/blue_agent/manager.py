@@ -76,6 +76,7 @@ class LangGraphBlueAgentManager:
         ] = {}
         self._reasoner = reasoner or build_blue_reasoner_from_env()
         self._graph = build_blue_agent_graph(telemetry_adapter, self._reasoner)
+        self._attached_run_id: Optional[str] = None
         self._graph_state: BlueAgentGraphState = {
             "agent_status": BlueAgentStatus.IDLE.value,
             "telemetry_cursor": 0,
@@ -121,6 +122,8 @@ class LangGraphBlueAgentManager:
         run_id: Optional[str] = None,
     ) -> dict[str, object]:
         resolved_run_id = run_id if run_id is not None else self._current_run_id()
+        if resolved_run_id is None:
+            resolved_run_id = self._attached_run_id
         event = {
             "event_type": event_type,
             "run_id": resolved_run_id,
@@ -145,6 +148,7 @@ class LangGraphBlueAgentManager:
                 action=action,
                 target_type="runtime",
                 target_id=self._state.selected_target or "",
+                run_id=self._attached_run_id or self._current_run_id(),
                 status=status,
                 details=details or {},
             )
@@ -302,6 +306,7 @@ class LangGraphBlueAgentManager:
             return
 
         detection = DetectionEvent(
+            run_id=self._attached_run_id or self._current_run_id(),
             detector="langgraph_blue_agent",
             classification=str(candidate.get("classification", "anomalous_web_activity")),
             confidence=float(candidate.get("confidence", 0.0)),
@@ -459,10 +464,17 @@ class LangGraphBlueAgentManager:
 
     def start(self, payload: BlueAgentStartRequest | None = None) -> BlueAgentActionResponse:
         running_targets = self._running_targets()
+        requested_target_app_id = payload.target_app_id if payload else None
+        if requested_target_app_id:
+            running_targets = [
+                target
+                for target in running_targets
+                if getattr(target, "app_id", None) == requested_target_app_id
+            ]
         if not running_targets:
             raise HTTPException(
                 status_code=409,
-                detail="Blue agent cannot start because no vulnerable app is currently running.",
+                detail="Blue agent cannot start because the selected vulnerable app is not currently running.",
             )
 
         with self._state_lock:
@@ -477,7 +489,8 @@ class LangGraphBlueAgentManager:
                 )
 
             requested_model_id = payload.model_id if payload else None
-            requested_reasoning_depth = payload.reasoning_depth if payload else "balanced"
+            requested_reasoning_depth = payload.reasoning_depth if payload else "normal"
+            self._attached_run_id = self._current_run_id()
             self._reasoner = build_blue_reasoner_from_env(requested_model_id)
             self._graph = build_blue_agent_graph(
                 self._telemetry_adapter,
@@ -504,6 +517,7 @@ class LangGraphBlueAgentManager:
                 status=BlueAgentStatus.STARTING,
                 active_target_count=len(target_names),
                 active_target_names=target_names,
+                selected_target=target_names[0] if len(target_names) == 1 else None,
                 selected_model_id=getattr(self._reasoner, "selected_model_id", None),
                 selected_model_label=getattr(self._reasoner, "selected_model_label", None),
                 last_started_at=utc_now(),
@@ -567,7 +581,11 @@ class LangGraphBlueAgentManager:
                 state=self._state.model_copy(deep=True),
             )
 
-    def stop(self, reason: str = "Blue agent stopped by operator.") -> BlueAgentActionResponse:
+    def stop(
+        self,
+        reason: str = "Blue agent stopped by operator.",
+        join_timeout_seconds: float = 0.2,
+    ) -> BlueAgentActionResponse:
         thread = self._thread
         with self._state_lock:
             self._stop_event.set()
@@ -612,7 +630,7 @@ class LangGraphBlueAgentManager:
             self._sync_run_state_store()
 
         if thread and thread.is_alive() and thread is not threading.current_thread():
-            thread.join(timeout=0.2)
+            thread.join(timeout=join_timeout_seconds)
         return response
 
     def logs(self) -> BlueAgentLogsResponse:

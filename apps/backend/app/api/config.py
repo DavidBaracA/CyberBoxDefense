@@ -18,7 +18,7 @@ DEFAULT_DURATION_OPTIONS = [
     ConfigOption(
         value="180",
         label="3 minutes",
-        description="Short validation run favoring quick high-signal techniques.",
+        description="Short validation run favoring high-signal techniques.",
     ),
     ConfigOption(
         value="300",
@@ -28,7 +28,7 @@ DEFAULT_DURATION_OPTIONS = [
     ConfigOption(
         value="600",
         label="10 minutes",
-        description="Balanced default for moderate scenario coverage.",
+        description="Normal default for moderate scenario coverage.",
     ),
     ConfigOption(
         value="900",
@@ -58,8 +58,7 @@ def create_config_router(attack_types_provider, red_model_provider=None) -> APIR
 
     def build_attack_depth_options() -> list[ConfigOption]:
         descriptions = {
-            AttackDepth.QUICK: "Prefer fast, high-signal techniques for short sessions.",
-            AttackDepth.BALANCED: "Balance quick checks with moderate exploration depth.",
+            AttackDepth.NORMAL: "Use the standard bounded attack plan for normal thesis runs.",
             AttackDepth.DEEP: "Allow deeper multi-step exploration when time budget permits.",
         }
         return [
@@ -73,8 +72,7 @@ def create_config_router(attack_types_provider, red_model_provider=None) -> APIR
 
     def build_blue_reasoning_depth_options() -> list[ConfigOption]:
         descriptions = {
-            BlueReasoningDepth.QUICK: "Use a compact Blue analysis pass over recent high-signal telemetry.",
-            BlueReasoningDepth.BALANCED: "Use the default Blue analysis depth for normal session monitoring.",
+            BlueReasoningDepth.NORMAL: "Use the standard Blue analysis depth for normal session monitoring.",
             BlueReasoningDepth.DEEP: "Review more telemetry context and ask for more cautious evidence correlation.",
         }
         return [
@@ -124,12 +122,12 @@ def create_config_router(attack_types_provider, red_model_provider=None) -> APIR
             duration_seconds=default_duration,
             enabled_attack_types=default_attack_type,
             try_all_available=False,
-            attack_depth=AttackDepth.BALANCED,
-            blue_reasoning_depth=BlueReasoningDepth.BALANCED,
+            attack_depth=AttackDepth.NORMAL,
+            blue_reasoning_depth=BlueReasoningDepth.NORMAL,
             stop_on_first_confirmed_vulnerability=False,
             blue_mode=BlueMode.DETECT_ONLY,
             red_model_id=default_red_model_id,
-            graceful_shutdown_seconds=15,
+            graceful_shutdown_seconds=30,
         )
         return RunConfigContract(
             request_example={

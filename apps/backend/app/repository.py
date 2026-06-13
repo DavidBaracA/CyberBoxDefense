@@ -169,8 +169,14 @@ class InMemoryRepository:
         with self._database.connect() as connection:
             self._apply_telemetry_retention(connection)
 
-    def add_telemetry_event(self, event: TelemetryEvent) -> Optional[TelemetryEvent]:
-        event.run_id = self._resolve_run_id(event.run_id)
+    def add_telemetry_event(
+        self,
+        event: TelemetryEvent,
+        *,
+        resolve_run_id: bool = True,
+    ) -> Optional[TelemetryEvent]:
+        if resolve_run_id:
+            event.run_id = self._resolve_run_id(event.run_id)
         if not self._should_persist_telemetry_event(event):
             return None
         with self._database.connect() as connection:

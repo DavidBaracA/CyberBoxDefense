@@ -39,8 +39,18 @@ function ScreenshotGallery({ screenshots }) {
   const [selectedScreenshotId, setSelectedScreenshotId] = useState(rows[0]?.screenshot_id || "");
 
   useEffect(() => {
-    setSelectedScreenshotId(rows[0]?.screenshot_id || "");
-  }, [rows]);
+    if (rows.length === 0) {
+      setSelectedScreenshotId("");
+      return;
+    }
+
+    const selectedStillExists = rows.some(
+      (screenshot) => screenshot.screenshot_id === selectedScreenshotId
+    );
+    if (!selectedStillExists) {
+      setSelectedScreenshotId(rows[0]?.screenshot_id || "");
+    }
+  }, [rows, selectedScreenshotId]);
 
   if (rows.length === 0) {
     return <p className="empty-state">No screenshots were captured for this session.</p>;
@@ -275,20 +285,6 @@ export default function RedAgentSessionsModal({ isOpen, onClose }) {
   }, [isOpen]);
 
   useEffect(() => {
-    if (!isOpen) {
-      return undefined;
-    }
-
-    const intervalId = window.setInterval(() => {
-      loadSessions({ preserveSelection: true, quiet: true });
-    }, 5000);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [isOpen, selectedSessionId]);
-
-  useEffect(() => {
     if (!isOpen || !selectedSessionId) {
       return undefined;
     }
@@ -358,7 +354,7 @@ export default function RedAgentSessionsModal({ isOpen, onClose }) {
               <button
                 className="ghost-button"
                 type="button"
-                onClick={loadSessions}
+                onClick={() => loadSessions({ preserveSelection: true })}
                 disabled={isLoadingList}
               >
                 Refresh

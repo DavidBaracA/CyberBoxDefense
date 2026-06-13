@@ -52,17 +52,27 @@ class RunTerminationReason(str, Enum):
 class AttackDepth(str, Enum):
     """Operator-selected attack intensity/depth for a run."""
 
-    QUICK = "quick"
-    BALANCED = "balanced"
+    NORMAL = "normal"
     DEEP = "deep"
+
+    @classmethod
+    def _missing_(cls, value: object) -> "AttackDepth | None":
+        if isinstance(value, str) and value.lower().strip() in {"quick", "balanced"}:
+            return cls.NORMAL
+        return None
 
 
 class BlueReasoningDepth(str, Enum):
     """Operator-selected analysis depth for Blue-agent reasoning."""
 
-    QUICK = "quick"
-    BALANCED = "balanced"
+    NORMAL = "normal"
     DEEP = "deep"
+
+    @classmethod
+    def _missing_(cls, value: object) -> "BlueReasoningDepth | None":
+        if isinstance(value, str) and value.lower().strip() in {"quick", "balanced"}:
+            return cls.NORMAL
+        return None
 
 
 class BlueMode(str, Enum):
@@ -78,12 +88,12 @@ class RunConfig(BaseModel):
     duration_seconds: int = Field(gt=0)
     enabled_attack_types: list[str] = Field(default_factory=list)
     try_all_available: bool = False
-    attack_depth: AttackDepth = AttackDepth.BALANCED
-    blue_reasoning_depth: BlueReasoningDepth = BlueReasoningDepth.BALANCED
+    attack_depth: AttackDepth = AttackDepth.NORMAL
+    blue_reasoning_depth: BlueReasoningDepth = BlueReasoningDepth.NORMAL
     stop_on_first_confirmed_vulnerability: bool = False
     blue_mode: BlueMode = BlueMode.DETECT_ONLY
     red_model_id: Optional[str] = None
-    graceful_shutdown_seconds: int = Field(default=15, ge=0)
+    graceful_shutdown_seconds: int = Field(default=30, ge=0)
 
     @model_validator(mode="after")
     def validate_attack_selection(self) -> "RunConfig":

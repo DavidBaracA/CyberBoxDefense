@@ -273,19 +273,14 @@ class OllamaRedPlanningReasoner:
 def _attack_depth_guidance(attack_depth: str) -> str:
     """Explain operator depth intent to the bounded planning model."""
     normalized_depth = attack_depth.lower().strip()
-    if normalized_depth == "quick":
-        return (
-            "Prefer short, high-confidence checks. Avoid deep-only, expensive, "
-            "or multi-step exploration unless it is the only clearly relevant option."
-        )
     if normalized_depth == "deep":
         return (
             "Prefer thorough coverage. Include relevant multi-step and lower-confidence "
             "scenarios after high-signal checks, while still staying inside the allowed list."
         )
     return (
-        "Balance high-confidence checks with moderate exploration. Prioritize likely "
-        "matches first, then include broader scenarios if time allows."
+        "Use the normal bounded plan. Prioritize likely high-confidence matches first, "
+        "then include moderate exploration if time allows."
     )
 
 

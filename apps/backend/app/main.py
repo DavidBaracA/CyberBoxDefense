@@ -130,7 +130,12 @@ def record_action_event(event: ActionEvent) -> ActionEvent:
 
 
 def record_telemetry_event(event: TelemetryEvent) -> TelemetryEvent:
-    stored = repository.add_telemetry_event(event)
+    active_run = run_service.get_active_run()
+    resolve_run_id = True
+    if active_run and event.app_id != active_run.app_id:
+        event.run_id = None
+        resolve_run_id = False
+    stored = repository.add_telemetry_event(event, resolve_run_id=resolve_run_id)
     if stored is None:
         return event
     if stored.run_id:

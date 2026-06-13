@@ -91,9 +91,11 @@ class TelemetryLineNormalizer:
         access_match = ACCESS_LOG_PATTERN.search(message)
         status = None
         path = None
+        method = None
         kind = TelemetryKind.APP_LOG
 
         if access_match:
+            method = access_match.group("method")
             status = int(access_match.group("status"))
             path = access_match.group("path")
             kind = TelemetryKind.HTTP_ERROR if status >= 400 else TelemetryKind.ACCESS_LOG
@@ -127,6 +129,7 @@ class TelemetryLineNormalizer:
                 "raw_line": message,
                 "collector_target": source_spec.target,
                 "deployment_type": app.deployment_type.value,
+                "method": method,
             },
         )
 

@@ -47,6 +47,32 @@ def telemetry_text(event: TelemetryEvent) -> str:
 class SemanticTelemetryInterpreter:
     """Interpret normalized telemetry into cleaner semantic observable events."""
 
+    AUTHENTICATED_PATH_MARKERS = (
+        "/index.php",
+        "/dashboard",
+        "/account",
+        "/profile",
+        "/home",
+        "/start",
+        "/welcome",
+        "/lesson",
+        ".lesson",
+        "/service/lesson",
+    )
+    STATIC_PATH_MARKERS = (
+        ".css",
+        ".js",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".svg",
+        ".ico",
+        ".woff",
+        ".woff2",
+        ".map",
+    )
+
     def interpret(self, event: TelemetryEvent) -> list[SemanticObservableEvent]:
         observables: list[SemanticObservableEvent] = []
         lowered_path = (event.path or "").lower()
@@ -73,7 +99,7 @@ class SemanticTelemetryInterpreter:
                     )
                 )
 
-        if lowered_path.endswith("/index.php") and event.http_status == 200:
+        if self._looks_like_post_login_navigation(lowered_path, lowered_text, event.http_status):
             observables.append(
                 self._observable(
                     event,
@@ -140,6 +166,23 @@ class SemanticTelemetryInterpreter:
         for event in events:
             observables.extend(self.interpret(event))
         return observables
+
+    def _looks_like_post_login_navigation(
+        self,
+        lowered_path: str,
+        lowered_text: str,
+        status: int | None,
+    ) -> bool:
+        if status not in {200, 302} or not lowered_path:
+            return False
+        if any(marker in lowered_path for marker in self.STATIC_PATH_MARKERS):
+            return False
+        if "login" in lowered_path and "error" in lowered_path:
+            return False
+        has_authenticated_path = any(marker in lowered_path for marker in self.AUTHENTICATED_PATH_MARKERS)
+        has_login_referrer = "referer" in lowered_text and "login" in lowered_text
+        has_start_referrer = "start.mvc?username=" in lowered_text
+        return has_authenticated_path or has_login_referrer or has_start_referrer
 
     def _observable(
         self,

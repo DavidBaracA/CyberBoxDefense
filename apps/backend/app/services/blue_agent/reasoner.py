@@ -318,11 +318,6 @@ class OllamaBlueReasoner:
 def _blue_reasoning_depth_guidance(reasoning_depth: str) -> str:
     """Explain operator analysis-depth intent to the Blue classifier."""
     normalized_depth = reasoning_depth.lower().strip()
-    if normalized_depth == "quick":
-        return (
-            "Make a compact classification from the strongest recent signals. "
-            "Prefer lower confidence when evidence is incomplete."
-        )
     if normalized_depth == "deep":
         return (
             "Correlate a wider set of recent telemetry messages before deciding. "
@@ -337,8 +332,6 @@ def _blue_reasoning_depth_guidance(reasoning_depth: str) -> str:
 def _event_sample_limit(reasoning_depth: str) -> int:
     """Choose how much recent telemetry context Blue sends to the reasoner."""
     normalized_depth = reasoning_depth.lower().strip()
-    if normalized_depth == "quick":
-        return 5
     if normalized_depth == "deep":
         return 14
     return 8

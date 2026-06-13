@@ -258,12 +258,14 @@ class RuleBasedBlueDetector:
                 signature=f"bruteforce:{path_hint}:{len(ids)}",
             )
 
+        redirect_events = [event for event in events if is_login_post_redirect(event)]
         redirect_observables = [
             observable
             for observable in observables
             if observable.observable_type == "login_submit_redirect"
         ]
-        if len(redirect_observables) < self._brute_force_threshold:
+        redirect_count = max(len(redirect_events), len(redirect_observables))
+        if redirect_count < self._brute_force_threshold:
             return None
 
         success_navigation = next(
@@ -274,8 +276,11 @@ class RuleBasedBlueDetector:
             ),
             None,
         )
-        evidence_ids = [observable.event_id for observable in redirect_observables]
-        evidence_lines = [observable.summary for observable in redirect_observables]
+        evidence_ids = [event.event_id for event in redirect_events]
+        evidence_lines = [event.message for event in redirect_events]
+        if not evidence_ids:
+            evidence_ids = [observable.event_id for observable in redirect_observables]
+            evidence_lines = [observable.summary for observable in redirect_observables]
         if success_navigation:
             evidence_ids.append(success_navigation.event_id)
             evidence_lines.append(success_navigation.summary)
@@ -283,11 +288,14 @@ class RuleBasedBlueDetector:
         ids = dedupe_preserve_order(evidence_ids)[:10]
         lines = dedupe_preserve_order(evidence_lines)[:4]
         path_hint = next(
+            (event.path for event in redirect_events if event.path),
+            None,
+        ) or next(
             (observable.path for observable in redirect_observables if observable.path),
             "login/auth endpoints",
         )
         summary = f"Observed repeated login-form redirect churn against {path_hint}."
-        confidence = min(0.95, 0.58 + (0.04 * len(redirect_observables)))
+        confidence = min(0.95, 0.58 + (0.04 * redirect_count))
         severity = Severity.WARNING
         if success_navigation:
             summary = (
@@ -304,7 +312,7 @@ class RuleBasedBlueDetector:
             summary=summary,
             supporting_evidence=lines,
             evidence_event_ids=ids,
-            signature=f"bruteforce_redirect:{path_hint}:{len(redirect_observables)}:{success_navigation.path if success_navigation else 'no-success'}",
+            signature=f"bruteforce_redirect:{path_hint}:{redirect_count}:{success_navigation.path if success_navigation else 'no-success'}",
         )
 
     def _detect_internal_error_burst(self, events: list[TelemetryEvent]) -> Optional[RuleMatch]:

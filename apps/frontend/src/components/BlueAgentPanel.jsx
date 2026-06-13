@@ -48,13 +48,6 @@ export default function BlueAgentPanel({
           <span>Target: {state?.selected_target || "None selected"}</span>
           <span>Model: {state?.selected_model_label || "Default"}</span>
           <span>Cycles: {state?.iteration_count ?? 0}</span>
-          <span>
-            Latest inference: {state?.predicted_attack_type || "No classification yet"}
-          </span>
-          <span>
-            Confidence:{" "}
-            {typeof state?.confidence === "number" ? state.confidence.toFixed(2) : "N/A"}
-          </span>
         </div>
         {!hasRunningTarget ? (
           <p className="warning-copy">

@@ -206,7 +206,7 @@ class AttackPlanner:
             if not profile:
                 filtered.append(scenario)
                 continue
-            if attack_depth == AttackDepth.QUICK and profile.deep_only:
+            if attack_depth == AttackDepth.NORMAL and profile.deep_only:
                 continue
             filtered.append(scenario)
         return filtered
@@ -254,10 +254,7 @@ class AttackPlanner:
             score -= 10 if profile.deep_only else 0
             score -= 4 if profile.multi_step else 0
 
-        if config.attack_depth == AttackDepth.QUICK:
-            score += 20 if profile.deep_only else 0
-            score += 4 if profile.multi_step else 0
-        elif config.attack_depth == AttackDepth.BALANCED:
+        if config.attack_depth == AttackDepth.NORMAL:
             score += 6 if profile.deep_only else 0
         elif config.attack_depth == AttackDepth.DEEP:
             score -= 12 if profile.deep_only else 0

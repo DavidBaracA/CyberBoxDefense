@@ -259,6 +259,7 @@ export default function Dashboard() {
   const [redAgentStreamState, setRedAgentStreamState] = useState("idle");
   const [runFormConfig, setRunFormConfig] = useState(null);
   const [agentDebugEntries, setAgentDebugEntries] = useState([]);
+  const [isAgentDebugExpanded, setIsAgentDebugExpanded] = useState(false);
   const activeRun = state.activeRun;
   const liveRunId = activeRun?.run_id || null;
 
@@ -887,26 +888,44 @@ export default function Dashboard() {
               Raw Ollama responses and reasoning errors captured from the Red and Blue streams.
             </p>
           </div>
-          <button
-            className="ghost-button"
-            type="button"
-            onClick={() => setAgentDebugEntries([])}
-          >
-            Clear Debug Log
-          </button>
+          <div className="panel-actions">
+            <button
+              className="ghost-button"
+              type="button"
+              onClick={() => setIsAgentDebugExpanded((current) => !current)}
+            >
+              {isAgentDebugExpanded ? "Collapse" : "Expand"}
+            </button>
+            {isAgentDebugExpanded ? (
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={() => setAgentDebugEntries([])}
+              >
+                Clear Debug Log
+              </button>
+            ) : null}
+          </div>
         </div>
-        <div className="agent-debug-grid">
-          <AgentDebugConsole
-            title="Red Agent"
-            entries={redDebugEntries}
-            emptyText="No Red raw model responses captured yet."
-          />
-          <AgentDebugConsole
-            title="Blue Agent"
-            entries={blueDebugEntries}
-            emptyText="No Blue raw model responses captured yet."
-          />
-        </div>
+        {isAgentDebugExpanded ? (
+          <div className="agent-debug-grid">
+            <AgentDebugConsole
+              title="Red Agent"
+              entries={redDebugEntries}
+              emptyText="No Red raw model responses captured yet."
+            />
+            <AgentDebugConsole
+              title="Blue Agent"
+              entries={blueDebugEntries}
+              emptyText="No Blue raw model responses captured yet."
+            />
+          </div>
+        ) : null}
+      </section>
+
+      <section className="content-grid">
+        <TelemetryList items={state.telemetry} />
+        <DetectionList items={state.detections} />
       </section>
 
       <section className="summary-grid">
@@ -930,11 +949,6 @@ export default function Dashboard() {
           value={safeMetric(state.metrics?.mean_time_to_detection_seconds)}
           detail="Displayed in seconds when the backend provides the metric."
         />
-      </section>
-
-      <section className="content-grid">
-        <TelemetryList items={state.telemetry} />
-        <DetectionList items={state.detections} />
       </section>
 
       <MetricsPanel metrics={state.metrics} />

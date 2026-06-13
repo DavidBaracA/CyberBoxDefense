@@ -49,16 +49,12 @@ class RunConfigContract(BaseModel):
 
 
 def attack_depth_label(depth: AttackDepth) -> str:
-    if depth == AttackDepth.QUICK:
-        return "Quick"
-    if depth == AttackDepth.BALANCED:
-        return "Balanced"
+    if depth == AttackDepth.NORMAL:
+        return "Normal"
     return "Deep"
 
 
 def blue_reasoning_depth_label(depth: BlueReasoningDepth) -> str:
-    if depth == BlueReasoningDepth.QUICK:
-        return "Quick"
-    if depth == BlueReasoningDepth.BALANCED:
-        return "Balanced"
+    if depth == BlueReasoningDepth.NORMAL:
+        return "Normal"
     return "Deep"

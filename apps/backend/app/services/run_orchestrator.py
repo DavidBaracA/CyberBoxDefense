@@ -107,7 +107,8 @@ class RunOrchestrator:
                     reason=(
                         "Blue agent stopped after the configured graceful flush "
                         "period for run timeout."
-                    )
+                    ),
+                    join_timeout_seconds=10.0,
                 )
                 self._run_service.mark_expired(run.run_id)
             elif termination_reason == RunTerminationReason.STOPPED_BY_USER:
@@ -116,7 +117,8 @@ class RunOrchestrator:
                     termination_reason=RunTerminationReason.STOPPED_BY_USER,
                 )
                 self._blue_agent_service.stop(
-                    reason="Blue agent stopped because the run was stopped by the operator."
+                    reason="Blue agent stopped because the run was stopped by the operator.",
+                    join_timeout_seconds=5.0,
                 )
                 self._run_service.mark_cancelled(
                     run.run_id,
@@ -133,7 +135,8 @@ class RunOrchestrator:
                 self._blue_agent_service.stop(
                     reason=(
                         "Blue agent stopped after the configured post-Red reporting window."
-                    )
+                    ),
+                    join_timeout_seconds=10.0,
                 )
                 if termination_reason == RunTerminationReason.FAILED:
                     self._run_service.mark_failed(run.run_id)

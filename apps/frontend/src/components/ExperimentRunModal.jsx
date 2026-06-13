@@ -38,8 +38,8 @@ export default function ExperimentRunModal({
   const [selectedScenarios, setSelectedScenarios] = useState([]);
   const [durationSeconds, setDurationSeconds] = useState("");
   const [tryAllAvailable, setTryAllAvailable] = useState(false);
-  const [attackDepth, setAttackDepth] = useState("balanced");
-  const [blueReasoningDepth, setBlueReasoningDepth] = useState("balanced");
+  const [attackDepth, setAttackDepth] = useState("normal");
+  const [blueReasoningDepth, setBlueReasoningDepth] = useState("normal");
   const [stopOnFirstConfirmed, setStopOnFirstConfirmed] = useState(false);
   const [redModelId, setRedModelId] = useState("");
   const [validationError, setValidationError] = useState("");
@@ -61,9 +61,9 @@ export default function ExperimentRunModal({
       String(defaultConfig.duration_seconds || durationOptions[0]?.value || "600")
     );
     setTryAllAvailable(Boolean(defaultConfig.try_all_available ?? false));
-    setAttackDepth(defaultConfig.attack_depth || attackDepthOptions[0]?.value || "balanced");
+    setAttackDepth(defaultConfig.attack_depth || attackDepthOptions[0]?.value || "normal");
     setBlueReasoningDepth(
-      defaultConfig.blue_reasoning_depth || blueReasoningDepthOptions[0]?.value || "balanced"
+      defaultConfig.blue_reasoning_depth || blueReasoningDepthOptions[0]?.value || "normal"
     );
     setStopOnFirstConfirmed(
       Boolean(defaultConfig.stop_on_first_confirmed_vulnerability ?? false)
@@ -122,12 +122,12 @@ export default function ExperimentRunModal({
         duration_seconds: Number(durationSeconds || defaultConfig.duration_seconds || 600),
         enabled_attack_types: selectedScenarios,
         try_all_available: tryAllAvailable,
-        attack_depth: attackDepth || defaultConfig.attack_depth || "balanced",
+        attack_depth: attackDepth || defaultConfig.attack_depth || "normal",
         blue_reasoning_depth:
-          blueReasoningDepth || defaultConfig.blue_reasoning_depth || "balanced",
+          blueReasoningDepth || defaultConfig.blue_reasoning_depth || "normal",
         stop_on_first_confirmed_vulnerability: stopOnFirstConfirmed,
         red_model_id: redModelId || defaultConfig.red_model_id || redModelOptions[0]?.value || null,
-        graceful_shutdown_seconds: defaultConfig.graceful_shutdown_seconds ?? 10,
+        graceful_shutdown_seconds: defaultConfig.graceful_shutdown_seconds ?? 30,
       },
     });
   }

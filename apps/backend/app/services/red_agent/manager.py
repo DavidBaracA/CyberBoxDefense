@@ -647,6 +647,15 @@ class RedAgentManager:
             self._current_session.selected_model_label = selected_model.label
             self._current_session.metadata.update(
                 {
+                    "run_id": run.run_id,
+                    "duration_seconds": run.config.duration_seconds,
+                    "attack_depth": run.config.attack_depth.value,
+                    "blue_reasoning_depth": run.config.blue_reasoning_depth.value,
+                    "try_all_available": run.config.try_all_available,
+                    "enabled_attack_types": list(run.config.enabled_attack_types),
+                    "stop_on_first_confirmed_vulnerability": (
+                        run.config.stop_on_first_confirmed_vulnerability
+                    ),
                     "planner_name": plan.planner_name,
                     "planner_rationale": plan.planner_rationale,
                     "planner_raw_response": plan.planner_raw_response,
@@ -856,6 +865,7 @@ class RedAgentManager:
     def _finalize_session(self) -> None:
         if self._current_session is None or self._session_history_store is None:
             return
+        self._recover_session_screenshots_from_ground_truth()
         session_summary = str(
             self._current_session.metadata.get("session_conclusion") or self._state.message
         )
@@ -877,6 +887,39 @@ class RedAgentManager:
         )
         self._session_history_store.save_session(finalized)
         self._current_session = None
+
+    def _recover_session_screenshots_from_ground_truth(self) -> None:
+        """Backfill session screenshots from completed ground-truth metadata if needed."""
+        if self._current_session is None:
+            return
+        known_paths = {
+            screenshot.artifact_path
+            for screenshot in self._current_session.screenshots
+            if screenshot.artifact_path
+        }
+        for event in self._ground_truth_events:
+            if event.run_id != self._current_session.session_id:
+                continue
+            if event.phase != "completed":
+                continue
+            screenshot_path = event.metadata.get("screenshot_path")
+            if not screenshot_path or str(screenshot_path) in known_paths:
+                continue
+            artifact_url = event.metadata.get("artifact_url") or self._artifact_url_for_path(
+                str(screenshot_path)
+            )
+            scenario = get_scenario(event.scenario_id)
+            self._current_session.screenshots.append(
+                RedAgentSessionScreenshot(
+                    scenario_id=event.scenario_id,
+                    scenario_name=scenario.display_name,
+                    filename=Path(str(screenshot_path)).name,
+                    artifact_path=str(screenshot_path),
+                    artifact_url=str(artifact_url),
+                    summary=f"Recovered screenshot for {scenario.display_name}.",
+                )
+            )
+            known_paths.add(str(screenshot_path))
 
     def _run_browser_scenario(
         self,
@@ -1259,7 +1302,17 @@ class RedAgentManager:
                 screenshots=[],
                 vulnerabilities=[],
                 page_analyses=[],
-                metadata={},
+                metadata={
+                    "run_id": run.run_id,
+                    "duration_seconds": run.config.duration_seconds,
+                    "attack_depth": run.config.attack_depth.value,
+                    "blue_reasoning_depth": run.config.blue_reasoning_depth.value,
+                    "try_all_available": run.config.try_all_available,
+                    "enabled_attack_types": list(run.config.enabled_attack_types),
+                    "stop_on_first_confirmed_vulnerability": (
+                        run.config.stop_on_first_confirmed_vulnerability
+                    ),
+                },
             )
             self._append_log("Red agent initialization started.", level="info")
             self._append_log(f"Attached to run {run.run_id}.", level="info")

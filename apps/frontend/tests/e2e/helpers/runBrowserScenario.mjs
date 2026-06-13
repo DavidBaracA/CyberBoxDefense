@@ -402,7 +402,42 @@ function queryInputLocator(page) {
     .first();
 }
 
+async function isFillableControl(locator) {
+  return locator
+    .evaluate((element) => {
+      const tag = element.tagName.toLowerCase();
+      if (tag === "textarea") {
+        return true;
+      }
+      if (element.isContentEditable) {
+        return true;
+      }
+      if (tag !== "input") {
+        return false;
+      }
+      const type = String(element.getAttribute("type") || "text").toLowerCase();
+      return ![
+        "button",
+        "checkbox",
+        "color",
+        "file",
+        "hidden",
+        "image",
+        "radio",
+        "reset",
+        "submit",
+      ].includes(type);
+    })
+    .catch(() => false);
+}
+
 async function submitCandidateInput(page, candidateInput, value) {
+  if (!(await isFillableControl(candidateInput))) {
+    return {
+      ...(await captureResponseSnapshot(page, null)),
+      fill_error: "Candidate element is not a fillable input control.",
+    };
+  }
   await candidateInput.fill(value);
   const form = candidateInput.locator("xpath=ancestor::form[1]");
   const submitButton = form
@@ -976,7 +1011,8 @@ async function probeHintedSqlTarget(page, safePageUrl, preActionSelector, target
     const inputVisible =
       (await hintedInput.count().catch(() => 0)) > 0 &&
       (await hintedInput.isVisible().catch(() => false));
-    if (inputVisible) {
+    const inputFillable = inputVisible && (await isFillableControl(hintedInput));
+    if (inputFillable) {
       await submitCandidateInput(page, hintedInput, "cyberbox-demo");
       const baseline = await captureResponseSnapshot(page, null);
       for (const payload of SQLI_PAYLOADS) {
@@ -986,7 +1022,10 @@ async function probeHintedSqlTarget(page, safePageUrl, preActionSelector, target
           await revealSearchInput(page, safePageUrl, preActionSelector);
         }
         const freshHintedInput = page.locator(targetSelector).first();
-        if ((await freshHintedInput.count().catch(() => 0)) === 0) {
+        if (
+          (await freshHintedInput.count().catch(() => 0)) === 0 ||
+          !(await isFillableControl(freshHintedInput))
+        ) {
           continue;
         }
         const probe = await submitCandidateInput(page, freshHintedInput, payload);

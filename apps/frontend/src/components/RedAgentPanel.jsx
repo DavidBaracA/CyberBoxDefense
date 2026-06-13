@@ -65,10 +65,6 @@ export default function RedAgentPanel({
           <span>Target: {state?.target_name || "No active target"}</span>
           <span>Run ID: {state?.run_id || "No active run"}</span>
           <span>Planner model: {state?.selected_model_label || "Default"}</span>
-          <span>Ground-truth events: {state?.emitted_events_count ?? 0}</span>
-          <span>
-            Latest artifact: {state?.latest_artifact_path ? "available" : "none"}
-          </span>
         </div>
         {rows.length === 0 ? (
           <p className="warning-copy">
