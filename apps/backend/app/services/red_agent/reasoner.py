@@ -22,7 +22,7 @@ DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 DEFAULT_OLLAMA_TIMEOUT_SECONDS = 120.0
 DEFAULT_OLLAMA_THINK = False
 DEFAULT_OLLAMA_NUM_PREDICT = 128
-DEFAULT_RED_MODEL_ID = "qwen3-vl:235b-cloud"
+DEFAULT_RED_MODEL_ID = "gemma3:27b-cloud"
 
 
 @dataclass(frozen=True)
@@ -37,9 +37,9 @@ class RedPlanningModelOption:
 
 RED_PLANNING_MODEL_OPTIONS: tuple[RedPlanningModelOption, ...] = (
     RedPlanningModelOption(
-        model_id="qwen3-vl:235b-cloud",
-        label="Qwen3-VL 235B Cloud",
-        ollama_model="qwen3-vl:235b-cloud",
+        model_id="gemma3:27b-cloud",
+        label="Gemma 3 27B Cloud",
+        ollama_model="gemma3:27b-cloud",
         description="Ollama Cloud planner for bounded Red scenario ordering.",
     ),
     RedPlanningModelOption(
@@ -47,12 +47,6 @@ RED_PLANNING_MODEL_OPTIONS: tuple[RedPlanningModelOption, ...] = (
         label="Gemma 3 4B",
         ollama_model="gemma3:4b",
         description="Compact local planner for bounded Red scenario ordering.",
-    ),
-    RedPlanningModelOption(
-        model_id="deepseek_r1_8b",
-        label="DeepSeek R1 8B",
-        ollama_model="deepseek-r1:8b",
-        description="General reasoning-focused local planner for bounded Red scenario ordering.",
     ),
 )
 
@@ -79,6 +73,33 @@ class RedPlanningDecision:
     rationale: str
     raw_response: Optional[str] = None
     error: Optional[str] = None
+
+
+def _load_json_object_from_model_response(response_text: str, *, context: str) -> dict[str, object]:
+    """Parse model JSON, accepting common Markdown-wrapped cloud responses."""
+    text = response_text.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].lstrip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    if not text.startswith("{"):
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            text = text[start : end + 1]
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        snippet = response_text[:300].replace("\n", "\\n")
+        raise RuntimeError(
+            f"{context} output was not valid JSON: {exc}. Response starts with: {snippet}"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"{context} output was not a JSON object.")
+    return payload
 
 
 class RedPlanningReasoner(Protocol):
@@ -257,17 +278,7 @@ class OllamaRedPlanningReasoner:
         return str(response_text)
 
     def _parse_response(self, response_text: str) -> dict[str, object]:
-        try:
-            payload = json.loads(response_text)
-        except json.JSONDecodeError as exc:
-            snippet = response_text[:300].replace("\n", "\\n")
-            raise RuntimeError(
-                f"Ollama planning output was not valid JSON: {exc}. "
-                f"Response starts with: {snippet}"
-            ) from exc
-        if not isinstance(payload, dict):
-            raise RuntimeError("Ollama planning output was not a JSON object.")
-        return payload
+        return _load_json_object_from_model_response(response_text, context="Ollama planning")
 
 
 def _attack_depth_guidance(attack_depth: str) -> str:

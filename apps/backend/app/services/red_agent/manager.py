@@ -530,6 +530,23 @@ class RedAgentManager:
         if session is None:
             return
         fallback_summary = f"Red session completed against {target.name}."
+        if len(plan.techniques) == 1:
+            vulnerabilities = list(session.vulnerabilities)
+            fallback_summary = (
+                f"Red session completed 1 planned technique against {target.name}; "
+                f"recorded {len(vulnerabilities)} vulnerability signal(s)."
+            )
+            session.summary = session.summary or fallback_summary
+            session.metadata.update(
+                {
+                    "session_conclusion": session.summary,
+                    "session_conclusion_reasoner": "deterministic_single_scenario",
+                    "session_conclusion_skipped": (
+                        "Skipped final LLM session conclusion because only one scenario was run."
+                    ),
+                }
+            )
+            return
         try:
             analyzed_pages = [
                 {
@@ -1133,6 +1150,7 @@ class RedAgentManager:
                 technique.technique_id == "brute_force_login"
                 and confirmed_vulnerability
                 and current_url
+                and remaining_after_current
                 and not authenticated_page_analyzed
             ):
                 authenticated_page_url = current_url

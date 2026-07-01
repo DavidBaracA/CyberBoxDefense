@@ -271,6 +271,12 @@ export async function startRun(runId) {
   });
 }
 
+export async function stopRun(runId) {
+  return fetchJson(`/api/runs/${runId}/stop`, {
+    method: "POST",
+  });
+}
+
 export async function getRuns() {
   return fetchJson("/api/runs");
 }

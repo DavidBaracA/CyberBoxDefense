@@ -73,6 +73,46 @@ class SessionConclusionDecision:
     raw_response: Optional[str] = None
 
 
+def _load_json_object_from_model_response(response_text: str, *, context: str) -> dict[str, object]:
+    """Parse model JSON, accepting common Markdown-wrapped cloud responses."""
+    text = response_text.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].lstrip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    if not text.startswith("{"):
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            text = text[start : end + 1]
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        snippet = response_text[:300].replace("\n", "\\n")
+        raise RuntimeError(
+            f"{context} output was not valid JSON: {exc}. Response starts with: {snippet}"
+        ) from exc
+    if not isinstance(parsed, dict):
+        raise RuntimeError(f"{context} output was not a JSON object.")
+    return parsed
+
+
+def _normalize_string_list(value: object) -> list[str]:
+    """Return a clean string list without splitting plain strings into characters."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        cleaned = value.strip()
+        return [cleaned] if cleaned else []
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    cleaned = str(value).strip()
+    return [cleaned] if cleaned else []
+
+
 class PageUnderstandingReasoner(Protocol):
     """Interface for optional page-understanding reasoners."""
 
@@ -237,10 +277,7 @@ class OllamaVisionReasoner:
         return str(response_text)
 
     def _parse_response(self, response_text: str) -> dict[str, object]:
-        parsed = json.loads(response_text)
-        if not isinstance(parsed, dict):
-            raise RuntimeError("Ollama vision output was not a JSON object.")
-        return parsed
+        return _load_json_object_from_model_response(response_text, context="Ollama vision")
 
 
 class OllamaSessionConclusionReasoner:
@@ -264,11 +301,10 @@ class OllamaSessionConclusionReasoner:
     def summarize_session(self, payload: SessionConclusionInput) -> SessionConclusionDecision:
         response_text = self._call_ollama(payload)
         parsed = self._parse_response(response_text)
-        observations = parsed.get("key_observations") or []
         return SessionConclusionDecision(
             conclusion=str(parsed.get("conclusion") or "Red session completed."),
             rationale=str(parsed.get("rationale") or ""),
-            key_observations=[str(item) for item in observations if str(item).strip()],
+            key_observations=_normalize_string_list(parsed.get("key_observations")),
             raw_response=response_text,
         )
 
@@ -327,10 +363,10 @@ class OllamaSessionConclusionReasoner:
         return str(response_text)
 
     def _parse_response(self, response_text: str) -> dict[str, object]:
-        parsed = json.loads(response_text)
-        if not isinstance(parsed, dict):
-            raise RuntimeError("Ollama session conclusion output was not a JSON object.")
-        return parsed
+        return _load_json_object_from_model_response(
+            response_text,
+            context="Ollama session conclusion",
+        )
 
 
 def build_page_understanding_reasoner() -> PageUnderstandingReasoner:

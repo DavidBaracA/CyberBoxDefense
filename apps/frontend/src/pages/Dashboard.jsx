@@ -23,6 +23,7 @@ import {
   removeVulnerableApp,
   restartVulnerableApp,
   startRun,
+  stopRun,
   startBlueAgent,
   stopVulnerableApp,
   stopRedAgent,
@@ -762,11 +763,13 @@ export default function Dashboard() {
     setIsStoppingBlueAgent(true);
     setBlueAgentError("");
     try {
-      const response = await stopBlueAgent();
-      appendAgentDebug("api", "stopBlueAgent", response);
+      const response = activeRun?.run_id
+        ? await stopRun(activeRun.run_id)
+        : await stopBlueAgent();
+      appendAgentDebug("api", activeRun?.run_id ? "stopRun" : "stopBlueAgent", response);
       await refresh();
     } catch (error) {
-      appendAgentDebug("api-error", "stopBlueAgent", { message: error.message });
+      appendAgentDebug("api-error", activeRun?.run_id ? "stopRun" : "stopBlueAgent", { message: error.message });
       setBlueAgentError(error.message);
     } finally {
       setIsStoppingBlueAgent(false);
@@ -801,11 +804,13 @@ export default function Dashboard() {
     setIsStoppingRedAgent(true);
     setRedAgentError("");
     try {
-      const response = await stopRedAgent();
-      appendAgentDebug("api", "stopRedAgent", response);
+      const response = activeRun?.run_id
+        ? await stopRun(activeRun.run_id)
+        : await stopRedAgent();
+      appendAgentDebug("api", activeRun?.run_id ? "stopRun" : "stopRedAgent", response);
       await refresh();
     } catch (error) {
-      appendAgentDebug("api-error", "stopRedAgent", { message: error.message });
+      appendAgentDebug("api-error", activeRun?.run_id ? "stopRun" : "stopRedAgent", { message: error.message });
       setRedAgentError(error.message);
     } finally {
       setIsStoppingRedAgent(false);
